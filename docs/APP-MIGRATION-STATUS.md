@@ -161,3 +161,26 @@ migrate/pages/Detail.vue   # 详情 + 读取记录
 | iOS | `gen` 零警告 → `xcodebuild` **BUILD SUCCEEDED** → 模拟器 OCR：`生日提醒 / 你好 / 今天 / 生日提醒·农历/公历自动换算 / 的生日 / 7 …` |
 | Android | `gen`（无 handler 提示）→ 产物含 `Runtime.push("/detail")` → `gradle assembleDebug` **BUILD SUCCESSFUL** |
 | 浏览器 | `/migrate.html` 200，无错误 |
+
+## 十一、Round 7（迁移页扩到 5 页 + R79 修复）
+
+**迁移页（方案 A）**：`migrate/` 现含 5 页
+| 页 | 内容 |
+|---|---|
+| `Home.vue`（tab） | 问候、最近生日卡、即将到来列表、刷新（localStorage） |
+| `Detail.vue`（push） | 详情 + 读取记录 |
+| `AllList.vue`（push） | 全部生日列表 + 同步记录 + 跳转添加 |
+| `Add.vue`（push） | 表单：称呼/日期（`v-model`）、历法切换、保存并返回 |
+| `Calendar.vue`（push） | 月历（上/下月切换）+ 本月生日标记列表 |
+
+路由：1 tab + 4 push；`migrate.html` 独立浏览器入口。
+
+**框架修复（R79）**
+- `arrangementExpr` 在同时存在 `gap` 与 `justify-content` 时输出**两个 `horizontalArrangement`** → Kotlin 报 `Argument already passed`。修复：合并为 `Arrangement.spacedBy(gap, Alignment.CenterHorizontally/End…)`，无 gap 时保持原语义
+
+**验收（三门槛）**
+| 端 | 结果 |
+|---|---|
+| 浏览器 | `/migrate.html` + 4 个页面模块 全 200，vite 零错误 |
+| Android | `gen`（1 tab + 4 detail）→ `gradle assembleDebug` **BUILD SUCCESSFUL** |
+| iOS | `gen` → `xcodebuild` **BUILD SUCCEEDED** → 模拟器 OCR：`生日提醒 / 你好 / 今天 / 生日提醒·农历/公历自动换算 / 的生日 / 7 …` |

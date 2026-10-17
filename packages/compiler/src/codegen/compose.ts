@@ -429,12 +429,31 @@ function arrangementExpr(props: IrProps, kind: 'Column' | 'Row' | 'Box'): string
   const parts: string[] = [];
   const horiz = kind === 'Row' ? 'horizontalArrangement' : 'verticalArrangement';
   const vert = kind === 'Row' ? 'verticalAlignment' : 'horizontalAlignment';
-  if (props.gap !== undefined) parts.push(`${horiz} = Arrangement.spacedBy(${dp(props.gap)})`);
+  // R79：gap 与 justify-content 共用同一个排列参数 → 必须合并（否则 Kotlin 报 duplicate argument）
   const just = props.justifyContent;
-  if (just === 'center') parts.push(`${horiz} = Arrangement.Center`);
-  else if (just === 'end') parts.push(`${horiz} = Arrangement.${kind === 'Row' ? 'End' : 'Bottom'}`);
-  else if (just === 'spaceBetween') parts.push(`${horiz} = Arrangement.SpaceBetween`);
-  else if (just === 'spaceAround') parts.push(`${horiz} = Arrangement.SpaceAround`);
+  const justAlign =
+    just === 'center'
+      ? kind === 'Row'
+        ? 'Alignment.CenterHorizontally'
+        : 'Alignment.CenterVertically'
+      : just === 'end'
+        ? kind === 'Row'
+          ? 'Alignment.End'
+          : 'Alignment.Bottom'
+        : '';
+  if (props.gap !== undefined && justAlign !== '') {
+    parts.push(`${horiz} = Arrangement.spacedBy(${dp(props.gap)}, ${justAlign})`);
+  } else if (props.gap !== undefined) {
+    parts.push(`${horiz} = Arrangement.spacedBy(${dp(props.gap)})`);
+  } else if (just === 'center') {
+    parts.push(`${horiz} = Arrangement.Center`);
+  } else if (just === 'end') {
+    parts.push(`${horiz} = Arrangement.${kind === 'Row' ? 'End' : 'Bottom'}`);
+  } else if (just === 'spaceBetween') {
+    parts.push(`${horiz} = Arrangement.SpaceBetween`);
+  } else if (just === 'spaceAround') {
+    parts.push(`${horiz} = Arrangement.SpaceAround`);
+  }
   const align = props.alignItems;
   if (align === 'center') parts.push(`${vert} = Alignment.${kind === 'Row' ? 'CenterVertically' : 'CenterHorizontally'}`);
   else if (align === 'end') parts.push(`${vert} = Alignment.${kind === 'Row' ? 'Bottom' : 'End'}`);
