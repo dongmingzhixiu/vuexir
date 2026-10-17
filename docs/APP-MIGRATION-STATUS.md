@@ -81,3 +81,13 @@ meta: { tab: true, title: '首页' },
 | G12 | **条件里的对象字段** `v-if="dialog.title"` | 条件表达式不支持 `obj.field` | `swiftCondExpr`/`kotlinCondExpr` 增加映射：`obj.field` → `!vrnField(obj,"field").isEmpty` / `.isNotEmpty()` |
 | G13 | **组件内的对象字段插值** | `AppDialog.vue` 走组件编译路径（propRefs 模式），与页面路径不同 | 在 `componentUseNode`/组件 walk 中同样识别 `fieldOf`（组件的 obj 需来自 props 或组件内 ref） |
 | G14 | 组件内 `v-if` 条件降级 | 组件模板条件渲染同样受限 | 随 G12/G13 一起处理 |
+
+## 七、本轮进展（G12/G13）
+
+**已实现**
+- `vue2ir`：`condition` 里 `obj.field`（obj 为页面状态或组件 prop）→ 标记 `__vrnField__:obj:field`
+- `swiftCondExpr` → `!vrnField(obj,"field").isEmpty`；`kotlinCondExpr` → `vrnField(obj,"field").isNotEmpty()`
+- 组件模式（propRefs）：`{{ obj.field }}`（obj ∈ props）→ `fieldOf`，组件 prop 作为 JSON 字符串在运行时取值
+
+**仍未通过的点**：`AppDialog.vue` 的 `<h3 v-if="dialog.title">{{ dialog.title }}</h3>` 仍报 `<h3> 无文本内容`。
+根因方向：**元素内容收集路径**（walkElement 里把 TEXT/INTERPOLATION 收成 text/bindParts 的那段）未接入 `fieldOf`；单插值元素在「既非 loopVar 也非 state」时内容被丢弃 → 容器空 → R17 抛错。下一轮要改的是 `walkElement` 的内容收集分支（而非 walk 的 INTERPOLATION 分支）。

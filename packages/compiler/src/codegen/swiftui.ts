@@ -500,6 +500,9 @@ function emitNode(node: IrNode, ctx: Ctx): string {
 
 /** JS 条件表达式 → Swift 兼容：===/!== 为 JS 严格比较，Swift 用 ==/!=；字符串字面量单引号 → 双引号 */
 function swiftCondExpr(expr: string): string {
+  // R78 续（G12）：对象字段条件 → 非空判断
+  const f = expr.match(/^__vrnField__:(\w+):(\w+)$/);
+  if (f) return `!vrnField(${f[1]}, "${f[2]}").isEmpty`;
   let s = expr.replace(/!==/g, '!=').replace(/===/g, '==');
   s = s.replace(/'(\\[^]|[^'\\])*'/g, (m) => '"' + m.slice(1, -1).replace(/"/g, '\\"') + '"');
   return s;

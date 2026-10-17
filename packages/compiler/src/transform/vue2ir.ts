@@ -854,7 +854,14 @@ function walk(
       const name = textOf(node.content).trim();
       // 组件树模式（propRefs 传入=非空）：{{ 任意名 }} → text ref（Swift Text(prop)，
       // prop 名由组件树实际引用自动收集，不强制 defineProps 声明）
-      if (propRefs) return [{ type: 'text', props: { ref: name } }];
+      if (propRefs) {
+        // R78 续（G13）：组件内 {{ obj.field }} → 组件 prop 是字符串（JSON）→ 运行时取值
+        const cf = name.match(/^([A-Za-z_$][\w$]*)\.([A-Za-z_$][\w$]*)$/);
+        if (cf && propRefs.has(cf[1])) {
+          return [{ type: 'text', props: { fieldOf: { obj: cf[1], field: cf[2] } } }];
+        }
+        return [{ type: 'text', props: { ref: name } }];
+      }
       // M2 模板内三元（D1 小范围）：cond ? 'a' : 'b' → Swift 三元字符串表达式（Text(expr)）
       const tri = parseTernaryExpr(name);
       if (tri) return [{ type: 'text', props: { bindExpr: tri } }];
@@ -1384,7 +1391,7 @@ function walkElement(
           // R78 对象字段插值 {{ obj.field }}（单插值）：状态对象 → fieldOf；非状态对象 → 警告 + 空文本
           const fld2 = name.match(/^([A-Za-z_$][\w$]*)\.([A-Za-z_$][\w$]*)$/);
           if (fld2) {
-            const isState2 = (state?.states ?? []).some((st) => st.name === fld2[1]);
+            const isState2 = (state?.states ?? []).some((st) => st.name === fld2[1]) || (propRefs?.has(fld2[1]) ?? false);
             if (isState2) {
               parts.push({ fieldOf: { obj: fld2[1], field: fld2[2] } });
               continue;
@@ -1477,7 +1484,15 @@ function walkElement(
 
   const irNode: IrNode = { type: (nodeType ?? mapping.type) as IrNode['type'], props };
   if (children.length > 0) irNode.children = children;
-  if (cond) irNode.condition = normCond(cond);
+  if (cond) {
+    const nc = normCond(cond);
+    // R78 续（G12）：条件里的对象字段（v-if="dialog.title"）→ 标记，由 codegen 映射为「非空判断」
+    const mCond = nc.match(/^([A-Za-z_$][\w$]*)\.([A-Za-z_$][\w$]*)$/);
+    const ownerKnown =
+      mCond !== null &&
+      ((state?.states ?? []).some((st) => st.name === mCond[1]) || (propRefs?.has(mCond[1]) ?? false));
+    irNode.condition = ownerKnown && mCond ? `__vrnField__:${mCond[1]}:${mCond[2]}` : nc;
+  }
   if (activeWhen && activeProps) {
     irNode.active = { when: activeWhen, props: activeProps };
     // active 的 color 注入所有后代 text（选中态金色覆盖子元素显式色）

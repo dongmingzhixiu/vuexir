@@ -257,6 +257,9 @@ function kotlinStr(s: string): string {
 
 /** 条件表达式 → Kotlin（对位 iOS swiftCondExpr：=== / !== 归一 + 单引号字符串转双引号） */
 function kotlinCondExpr(expr: string): string {
+  // R78 续（G12）：对象字段条件 → 非空判断
+  const f = expr.match(/^__vrnField__:(\w+):(\w+)$/);
+  if (f) return `vrnField(${f[1]}, "${f[2]}").isNotEmpty()`;
   let s = expr.replace(/!==/g, '!=').replace(/===/g, '==');
   s = s.replace(/'(\\[^]|[^'\\])*'/g, (m) => '"' + m.slice(1, -1).replace(/"/g, '\\"') + '"');
   return s;
