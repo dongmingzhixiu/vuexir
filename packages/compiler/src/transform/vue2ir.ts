@@ -1697,11 +1697,38 @@ function walkElement(
   if (forDir) {
     // AttributeNode 无 exp；DirectiveNode 才有（find 命中 DIRECTIVE 但 TS 不窄化 union）
     const exp = 'exp' in forDir ? forDir.exp : undefined;
-    const vf = parseVFor(
-      exp && exp.type === NodeTypes.SIMPLE_EXPRESSION ? exp.content : '',
-      warnings,
-      vforConsts,
-    );
+    const forExp = exp && exp.type === NodeTypes.SIMPLE_EXPRESSION ? exp.content : '';
+    // R105：`v-for="x in stats"` 里的 stats 是 computed/普通变量（不是 ref 状态）
+    // → 下沉成运行时求值的 JSON 数组状态，列表照常渲染
+    let sunkList: string | undefined;
+    {
+      const m = forExp.trim().match(/^(?:\(([^)]+)\)|([A-Za-z_$][\w$]*))\s+in\s+([A-Za-z_$][\w$]*)$/);
+      if (m) {
+        const src = m[3];
+        const isState = (state?.states ?? []).some((st) => st.name === src);
+        const isConst = vforConsts && src in vforConsts;
+        if (!isState && !isConst && scriptDeclaredNames.has(src)) {
+          sunkList = addJsExprState(`JSON.stringify(${src})`);
+          const vfSunk = {
+            listState: sunkList,
+            itemKey: (m[1] ? m[1].split(',')[0] : m[2]).trim(),
+            indexKey: m[1] ? m[1].split(',')[1]?.trim() : undefined,
+            sunk: true,
+          } as IrVFor & { sunk?: boolean };
+          const innerNodeSunk: ElementNode = {
+            ...node,
+            props: node.props.filter((p) => !(p.type === NodeTypes.DIRECTIVE && p.name === 'for')),
+          };
+          const itemSunk = walkElement(innerNodeSunk, classProps, comboRules, scopedRules, pseudoRules, warnings, state, compTable, propRefs, [
+            ...loopScope,
+            { itemKey: vfSunk.itemKey, indexKey: vfSunk.indexKey },
+          ], ancestorClasses);
+          return { type: 'for', vfor: vfSunk, children: [itemSunk] };
+        }
+      }
+    }
+    const vf = parseVFor(forExp, warnings, vforConsts);
+    void sunkList;
     if (!vf) {
       throw new VueCompileError(
         'v-for 仅支持静态数组字面量（M2，如 v-for="item in [1,2,3]" / v-for="(item, i) in [\'a\',\'b\']"；动态列表随 M3/M4）',
