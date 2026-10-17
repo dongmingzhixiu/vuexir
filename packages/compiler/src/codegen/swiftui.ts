@@ -545,6 +545,12 @@ function swiftCondExpr(expr: string): string {
   if (/^[A-Za-z_$][\w$]*$/.test(s)) return `vrnTruthy(String(${s}))`;
   // R110：裸标识符条件（状态可能是字符串/对象/布尔）→ 统一走判真
   if (/^[A-Za-z_$][\w$]*$/.test(s) && !['true', 'false'].includes(s)) return `vrnTruthy(String(${s}))`;
+  // R112：循环项字段的 && 组合（item && item.cd）→ 判真
+  const andExpr = s.match(/^([A-Za-z_$][\w$.]*)\s*&&\s*([A-Za-z_$][\w$.]*)$/);
+  if (andExpr) {
+    const truthy = (v: string) => (v.includes('.') ? `!vrnField(${v.split('.')[0]}, "${v.split('.').slice(1).join('.')}").isEmpty` : `vrnTruthy(String(${v}))`);
+    return `${truthy(andExpr[1])} && ${truthy(andExpr[2])}`;
+  }
   return s;
 }
 

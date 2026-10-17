@@ -1467,8 +1467,12 @@ function parseTernaryExpr(exp: string): string | null {
   const t = exp.trim();
   const m = t.match(/^(.+?)\s*\?\s*'([^']+)'\s*:\s*'([^']+)'$/);
   if (!m) return null;
-  const cond = swiftExpr(m[1]);
+  let cond = swiftExpr(m[1]);
   if (cond === null) return null;
+  // R112：三元条件里的字符串/数字状态要判真（Swift/Kotlin 不接受非 Bool 条件）
+  if (/^[A-Za-z_$][\w$]*$/.test(cond) && !['true', 'false'].includes(cond)) {
+    cond = `vrnTruthy(String(${cond}))`;
+  }
   return `${cond} ? "${m[2]}" : "${m[3]}"`;
 }
 

@@ -452,6 +452,11 @@ function kotlinCondExpr(expr: string): string {
   if (f) return `vrnField(${f[1]}, "${f[2]}").isNotEmpty()`;
   let s = expr.replace(/!==/g, '!=').replace(/===/g, '==');
   s = s.replace(/'(\\[^]|[^'\\])*'/g, (m) => '"' + m.slice(1, -1).replace(/"/g, '\\"') + '"');
+  // R111：Kotlin 不接受 String/Int 当条件 → 统一判真
+  const neg = s.match(/^!([A-Za-z_$][\w$]*)(?:\.length)?$/);
+  if (neg) return `vrnTruthy(${neg[1]}.toString()).not()`;
+  if (/^[A-Za-z_$][\w$]*\.length$/.test(s)) return `${s} > 0`;
+  if (/^[A-Za-z_$][\w$]*$/.test(s) && !['true', 'false'].includes(s)) return `vrnTruthy(${s}.toString())`;
   return s;
 }
 
@@ -1018,10 +1023,10 @@ function emitNodeInner(node: IrNode, ctx: ComposeCtx, depth: number, loop?: { it
           pre += cpad + 'Spacer(\n' + cpad + '    modifier = Modifier.width(' + dp(cp.marginLeft) + '),\n' + cpad + ')\n';
         }
         if (kind === 'Row' && cp.marginRight !== undefined) {
-          post = post + cpad + 'Spacer(\n' + cpad + '    modifier = Modifier.width(' + dp(cp.marginRight) + '),\n' + cpad + ')\n';
+          post = post + '\n' + cpad + 'Spacer(\n' + cpad + '    modifier = Modifier.width(' + dp(cp.marginRight) + '),\n' + cpad + ')\n';
         }
         if (kind === 'Column' && cp.marginBottom !== undefined) {
-          post = post + cpad + 'Spacer(\n' + cpad + '    modifier = Modifier.height(' + dp(cp.marginBottom) + '),\n' + cpad + ')\n';
+          post = post + '\n' + cpad + 'Spacer(\n' + cpad + '    modifier = Modifier.height(' + dp(cp.marginBottom) + '),\n' + cpad + ')\n';
         }
         const stretch = kind === 'Column' && cp.width === undefined && cp.flex === undefined && cp.position !== 'absolute' && !cp.marginLeftAuto;
         return pre + emitNode(c, ctx, d, undefined, false, stretch) + post;
