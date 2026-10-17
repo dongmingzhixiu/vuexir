@@ -32,6 +32,7 @@ export {
   generateComponentSource,
   generateThemeSource,
   generateViewExtensions,
+  VRN_HELPERS_SWIFT,
   collectTheme,
   buildTheme,
 } from './codegen/swiftui.js';

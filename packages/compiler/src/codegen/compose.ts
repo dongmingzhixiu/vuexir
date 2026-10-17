@@ -180,6 +180,10 @@ object Store {
 
 object Runtime {
     var pushHandler: ((String) -> Unit)? = null
+    var backHandler: (() -> Unit)? = null
+    fun back() {
+        backHandler?.invoke()
+    }
     fun push(route: String) {
         pushHandler?.invoke(route)
     }
@@ -621,6 +625,13 @@ function asyncLineKotlin(line: string, ctx: ComposeCtx): string | null {
     if (cond === null) return null;
     return `if (${cond}) {`;
   }
+  // G15 router 语句：router.push('x') / router.back() → Runtime.push / Runtime.back
+  const rp = line.match(/^router\.push\((.+)\);?$/);
+  if (rp) {
+    const a = jsExprToKotlin(rp[1].trim());
+    return a === null ? null : `Runtime.push(${a})`;
+  }
+  if (/^router\.back\(\)\s*;?$/.test(line)) return 'Runtime.back()';
   // R73 localStorage（语句形态）：setItem / removeItem
   const lsSet = line.match(/^localStorage\.setItem\((.+),\s*(.+)\);?$/);
   if (lsSet) {

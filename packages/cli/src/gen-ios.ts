@@ -20,7 +20,7 @@ import { TEMPLATE_VERSION, projectYml as PROJECT_YML, templateFiles } from '@don
 import { parseRouter as parseRouterV2, findProjectRoot } from '@dongmingzhixiu/vuexir-compiler';
 import { validateIr } from '@dongmingzhixiu/vuexir-compiler';
 import type { IrScreen, IrNode } from '@dongmingzhixiu/vuexir-compiler';
-import { generateScreenSource, generateComponentSource, collectTheme, buildTheme, generateThemeSource } from '@dongmingzhixiu/vuexir-compiler';
+import { generateScreenSource, generateComponentSource, collectTheme, buildTheme, generateThemeSource, VRN_HELPERS_SWIFT } from '@dongmingzhixiu/vuexir-compiler';
 import { vueToIr, VueCompileError } from '@dongmingzhixiu/vuexir-compiler';
 
 // R-PKG：产物与样例根不再假设仓库布局（CLI 通过 VRN_OUT_DIR / VRN_SAMPLES_ROOT 注入）
@@ -464,6 +464,7 @@ function runOne(input: string): string | undefined {
   }
   // R42 Theme token：颜色/字体抽离（去重常量，页面与组件共享引用）
   writeFileSync(join(srcDir, 'Theme.swift'), themeSrc);
+  writeFileSync(join(srcDir, 'VrnHelpers.swift'), VRN_HELPERS_SWIFT);
   writeFileSync(join(outDir, 'project.yml'), PROJECT_YML(projectName, bundleId));
   writeManifest(outDir, 'ios', projectName, bundleId, ['ScreenView.swift', ...compFiles.map((f) => f.name), 'Theme.swift', 'App.swift', 'project.yml', 'runtime.js', 'recite.json']);
   console.log(`[gen-ios] 已生成工程: ${outDir}`);
@@ -777,6 +778,7 @@ function runTabs(appDir: string, opts: { routerFile?: string } = {}): string {
   }
   const theme = buildThemeFromPieces(themePieces);
   writeFileSync(join(srcDir, 'Theme.swift'), generateThemeSource(theme));
+  writeFileSync(join(srcDir, 'VrnHelpers.swift'), VRN_HELPERS_SWIFT);
   // R-VFOBJ：多页组件合并生成（各页组件表去重 → 独立 XxxView.swift；页面引用点已生成）
   const compSeen = new Set<string>();
   for (const p of themePieces) {

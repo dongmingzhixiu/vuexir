@@ -144,3 +144,20 @@ migrate/pages/Detail.vue   # 详情 + 读取记录
 |---|---|---|
 | G15 | async handler 里 `router.push(...)` 未翻译 | `asyncLineKotlin` 增加 `router.push(x)` → `Runtime.push(x)`、`router.back()` → `Runtime.back()` |
 | G16 | `{{ greet() }}` 模板函数调用 | 限定无参纯函数 → 派生状态（本轮已用平铺 ref 规避） |
+
+## 十、Round 6（G15 + 浏览器入口 + helper 文件化）
+
+**框架**
+- **G15 已实现**：async handler 内 `router.push('x')` → `Runtime.push("x")`、`router.back()` → `Runtime.back()`；Compose `Runtime` 补 `backHandler`/`back()`。产物实测 `Runtime.push("/detail")` ✓
+- **辅助函数文件化**：`vrnField` 从 Theme 模板改为独立 `VrnHelpers.swift`（此前被重复注入 3 次 → `invalid redeclaration`；且缺 `import Foundation`）。现在 `VrnHelpers.swift` 只写一次且带 Foundation
+
+**浏览器可预览（硬门槛③）**
+- 新增 `vue-ir-native/migrate.html` + `migrate/main.ts` + `migrate/App.vue`（独立外壳，不动用户原 `src/`）
+- 实测 `vite` 下 `/migrate.html`、`/migrate/App.vue`、`/migrate/pages/Home.vue` 均 200，日志零错误
+
+**双端验证**
+| 端 | 结果 |
+|---|---|
+| iOS | `gen` 零警告 → `xcodebuild` **BUILD SUCCEEDED** → 模拟器 OCR：`生日提醒 / 你好 / 今天 / 生日提醒·农历/公历自动换算 / 的生日 / 7 …` |
+| Android | `gen`（无 handler 提示）→ 产物含 `Runtime.push("/detail")` → `gradle assembleDebug` **BUILD SUCCESSFUL** |
+| 浏览器 | `/migrate.html` 200，无错误 |
