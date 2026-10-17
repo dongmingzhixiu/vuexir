@@ -15,28 +15,36 @@ import UIKit
 
 /// vuexir 原生桥（R81）——编译期注入，Vue 侧通过 bridge.* 调用
 enum VrnBridge {
-    /// 轻提示：在当前 window 上叠加一个自动消失的 label
-    static func toast(_ message: String, duration: TimeInterval = 1.6) {
+    /// 轻提示：在 key window 的 rootViewController.view 上叠加一个自动消失的 label
+    /// （不依赖 window 层级，避免 SwiftUI Scene 下 keyWindow 为 nil 或视图被覆盖）
+    static func toast(_ message: String, duration: TimeInterval = 1.8) {
         DispatchQueue.main.async {
-            guard let scene = UIApplication.shared.connectedScenes.compactMap({ $0 as? UIWindowScene }).first,
-                  let window = scene.windows.first(where: { $0.isKeyWindow }) ?? scene.windows.first else { return }
+            let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
+            let window = scenes.flatMap { $0.windows }.first(where: { $0.isKeyWindow })
+                ?? scenes.flatMap { $0.windows }.first
+            guard let host = window?.rootViewController?.view else { return }
+
             let label = UILabel()
-            label.text = "  \\(message)  "
-            label.font = .systemFont(ofSize: 14)
+            label.text = "\\(message)"
+            label.font = .systemFont(ofSize: 15)
             label.textColor = .white
-            label.backgroundColor = UIColor.black.withAlphaComponent(0.78)
+            label.backgroundColor = UIColor.black.withAlphaComponent(0.8)
             label.numberOfLines = 0
             label.textAlignment = .center
-            label.layer.cornerRadius = 10
+            label.layer.cornerRadius = 12
             label.layer.masksToBounds = true
+            label.tag = 0x5652 // 'VR' 标记，便于重复调用时替换
             label.translatesAutoresizingMaskIntoConstraints = false
-            window.addSubview(label)
+            host.viewWithTag(0x5652)?.removeFromSuperview()
+            host.addSubview(label)
             NSLayoutConstraint.activate([
-                label.centerXAnchor.constraint(equalTo: window.centerXAnchor),
-                label.bottomAnchor.constraint(equalTo: window.safeAreaLayoutGuide.bottomAnchor, constant: -120),
-                label.widthAnchor.constraint(lessThanOrEqualTo: window.widthAnchor, constant: -64)
+                label.centerXAnchor.constraint(equalTo: host.centerXAnchor),
+                label.centerYAnchor.constraint(equalTo: host.centerYAnchor, constant: 120),
+                label.widthAnchor.constraint(lessThanOrEqualTo: host.widthAnchor, constant: -56),
+                label.heightAnchor.constraint(greaterThanOrEqualToConstant: 40),
             ])
-            UIView.animate(withDuration: 0.2, animations: { label.alpha = 1 }) { _ in
+            label.layoutIfNeeded()
+            UIView.animate(withDuration: 0.18, animations: { label.alpha = 1 }) { _ in
                 UIView.animate(withDuration: 0.25, delay: duration, options: [], animations: { label.alpha = 0 }) { _ in
                     label.removeFromSuperview()
                 }

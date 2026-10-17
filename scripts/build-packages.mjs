@@ -47,14 +47,22 @@ for (const dir of [...BUILD_ORDER, ...pkgs.filter((d) => !BUILD_ORDER.includes(d
   execFileSync('npx', ['tsc', '-p', join(pkgDir, 'tsconfig.build.json')], { stdio: 'inherit', cwd: root });
 
   // exports/files/bin 指向 dist
-  const exportsMap = {};
-  for (const [k, v] of Object.entries(j.exports ?? { '.': './src/index.ts' })) {
-    const key = k === '.' ? '.' : k;
-    const base = String(v).replace('./src/', '').replace(/\.ts$/, '');
-    exportsMap[key] =
-      key === '.'
-        ? { types: './dist/index.d.ts', import: './dist/index.js' }
-        : { types: `./dist/${base}.d.ts`, import: `./dist/${base}.js` };
+  // 子路径的源码真值表：package.json 里的 exports 可能已被上一次构建改写（指向 dist），
+  // 因此不能把它当输入；这里显式声明每个包「子路径 → 源码文件」，保证幂等。
+  const SUBPATH_SOURCES = {
+    './schema': 'ir/schema',
+    './swift': 'codegen/swiftui',
+    './compose': 'codegen/compose',
+    './templates': 'index',
+  };
+  const exportsMap = { '.': { types: './dist/index.d.ts', import: './dist/index.js' } };
+  for (const key of Object.keys(j.exports ?? {})) {
+    if (key === '.') continue;
+    const base = SUBPATH_SOURCES[key];
+    if (!base) {
+      throw new Error(`[build] ${dir}: 未知子路径导出「${key}」，请在 SUBPATH_SOURCES 中补充源码映射`);
+    }
+    exportsMap[key] = { types: `./dist/${base}.d.ts`, import: `./dist/${base}.js` };
   }
   j.exports = exportsMap;
   j.files = ['dist', 'README.md', 'LICENSE'];

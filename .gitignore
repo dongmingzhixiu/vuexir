@@ -1,10 +1,12 @@
 # 依赖
 node_modules/
 
+# 误落源码目录的编译产物（tsc 直出时产生；Vite 解析 .js 优先于 .ts，会静默加载旧代码）
+packages/*/src/**/*.js
+
 # 构建产物（可随时由 npm run build:packages / vuexir gen 重新生成）
 compiler/generated/
 dist/
-.swiftmodcache/
 .swiftmodcache/
 .npm-cache/
 

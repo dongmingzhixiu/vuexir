@@ -10,16 +10,16 @@
       "import": "./dist/index.js"
     },
     "./schema": {
-      "types": "./dist/[object Object].d.ts",
-      "import": "./dist/[object Object].js"
+      "types": "./dist/ir/schema.d.ts",
+      "import": "./dist/ir/schema.js"
     },
     "./swift": {
-      "types": "./dist/[object Object].d.ts",
-      "import": "./dist/[object Object].js"
+      "types": "./dist/codegen/swiftui.d.ts",
+      "import": "./dist/codegen/swiftui.js"
     },
     "./compose": {
-      "types": "./dist/[object Object].d.ts",
-      "import": "./dist/[object Object].js"
+      "types": "./dist/codegen/compose.d.ts",
+      "import": "./dist/codegen/compose.js"
     }
   },
   "files": [

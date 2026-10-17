@@ -18,6 +18,24 @@ function loadSample(): IrScreen {
   return screen;
 }
 
+describe('R74 保留名自动重命名（产物断言）', () => {
+  it('模板中名为 body 的状态生成 bodyText，且 SwiftUI 结构合法', () => {
+    const src = `<template><div class="page"><p class="t">{{ body }}</p></div></template>
+<script setup>const body = ref('你好')</script>
+<style>.page { background: #0a0f1e; } .t { font-size: 15px; color: #ffffff; }</style>`;
+    const { screen } = vueToIr(src, { screenId: 'BodyCase' });
+    const r = validateIr(screen);
+    expect(r.ok).toBe(true);
+    const stateNames = (screen.state ?? []).map((st) => st.name);
+    expect(stateNames).toContain('bodyText');
+    expect(stateNames).not.toContain('body');
+    const swift = generateScreenSource(screen, { theme: buildTheme(collectTheme(screen.ui)) });
+    expect(swift).toContain('@State private var bodyText');
+    // 视图结构体自身的 body 属性不能被覆盖
+    expect(swift.match(/var body: some View/g)?.length).toBe(1);
+  });
+});
+
 describe('SwiftUI 生成器 v0（P0.3）', () => {
   it('生成 Guide.vue 源码且包含关键结构', () => {
     const src = generateScreenSource(loadSample());
