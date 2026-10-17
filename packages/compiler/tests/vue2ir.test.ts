@@ -606,7 +606,8 @@ const ui = useUiStore()</script>
     const r = vueToIr(src, { screenId: 'S', storeSources: { 'ui.ts': storeSrc } });
     const ui = JSON.stringify(r.screen.ui);
     expect(ui).toContain('"obj":"ui_dialog","field":"visible"');
-    expect(r.warnings.some((w) => w.includes('getter/action'))).toBe(true);
+    // R90 起：含计算的 getter 降级读底层字段（不再产出占位），必须有显式告警
+    expect(r.warnings.some((w) => w.includes('R90') && w.includes('含计算逻辑'))).toBe(true);
   });
 
   it('R87 store action 折叠：@click 与 handler 体内的 action 调用变成状态赋值', () => {
@@ -670,5 +671,26 @@ const all = computed(() => store.upcoming)</script>
     expect(ui).toContain('"fieldOf":{"obj":"store_upcoming","field":"length"}');
     expect(ui).toContain('"bind":"monthLabel"'); // 前置插值未被静态文本吞掉
     expect(r.warnings).toEqual([]);
+  });
+
+  it('R90 getter 降级：含计算逻辑的 getter 读底层 state，可折叠 getter 走点路径并告警', () => {
+    const storeSrc = `export const useUiStore = defineStore('ui', {
+  state: (): S => ({ skin: 'warm', list: [] }),
+  getters: {
+    isDark(): boolean { return this.skin === 'night' },
+    rows(): number[] { return this.list.filter((x) => x).map((x) => x) },
+  },
+})`;
+    const src = `<template><div class="page"><p class="t">{{ ui.isDark }}</p><p class="t">共 {{ ui.rows.length }} 条</p></div></template>
+<script setup>import { useUiStore } from '@/stores/ui'
+const ui = useUiStore()</script>
+<style>.page { background: #0b1020; padding: 16px; } .t { font-size: 14px; color: #ffffff; }</style>`;
+    const r = vueToIr(src, { screenId: 'S', storeSources: { 'ui.ts': storeSrc } });
+    const ui = JSON.stringify(r.screen.ui);
+    // isDark 含比较运算 → 降级读底层 skin 字段
+    expect(ui).toContain('"bind":"ui_skin"');
+    // rows 含计算 → 降级读底层 list，并给出显式告警（不静默）
+    expect(ui).toContain('"obj":"ui_list","field":"length"');
+    expect(r.warnings.some((w) => w.includes('含计算逻辑') && w.includes('R90'))).toBe(true);
   });
 });

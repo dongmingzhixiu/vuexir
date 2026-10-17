@@ -25,6 +25,9 @@ import { buildStoreRegistry, findStoreAliases, parseSharedConstArrays, type Stor
 
 export class VueCompileError extends Error {}
 
+/** R90 store getter 降级告警（flattenStorePath 无 warnings 参数，先收集后并入） */
+let storeGetterWarnings: string[] = [];
+
 /** R89 派生名表：`all` → `ui_upcoming`（computed 折叠成状态点路径） */
 let derivedNames: Map<string, string> = new Map();
 
@@ -53,6 +56,27 @@ function flattenStorePath(name: string): string {
   if (getter && getter.stateField) {
     const tail = [getter.path, ...segs.slice(1)].filter(Boolean).join('.');
     return [`${m[1]}_${getter.stateField}`, tail].filter(Boolean).join('.');
+  }
+  // R90 含计算逻辑的 getter：降级为读取底层 state 字段（筛选/排序/派生字段语义丢失）
+  if (getter && getter.refField) {
+    // 链式解析：getter → 另一个 getter → … → state 字段（如 soon → upcoming → list）
+    let field2: string | undefined = getter.refField;
+    const seen = new Set<string>([field]);
+    let guard = 0;
+    while (field2 && !def.state.some((f) => f.name === field2) && guard++ < 6 && !seen.has(field2)) {
+      seen.add(field2);
+      field2 = def.getters.find((g) => g.name === field2)?.refField;
+    }
+    if (field2 && def.state.some((f) => f.name === field2)) {
+      const msg = `store getter「${m[1]}.${field}」含计算逻辑（遍历/过滤/排序等），原生端无法求值 → 已降级为直接读取底层状态「${m[1]}_${field2}」，派生语义丢失（R90）`;
+      if (!storeGetterWarnings.includes(msg)) storeGetterWarnings.push(msg);
+      return [`${m[1]}_${field2}`, ...segs.slice(1)].filter(Boolean).join('.');
+    }
+  }
+  if (getter && getter.multi) {
+    const msg = `store getter「${m[1]}.${field}」依赖多个 state 字段，无法降级 → 已生成占位（R90）`;
+    if (!storeGetterWarnings.includes(msg)) storeGetterWarnings.push(msg);
+    return `\u0000store:${m[1]}.${m[2]}`;
   }
   if (!def.state.some((f) => f.name === field)) return `\u0000store:${m[1]}.${m[2]}`;
   return [`${m[1]}_${field}`, ...segs.slice(1)].join('.');
@@ -865,6 +889,7 @@ export function vueToIr(source: string, opts: Vue2IrOptions = {}): Vue2IrResult 
   storeAliases = new Map();
   storeConstArrays = {};
   derivedNames = new Map();
+  storeGetterWarnings = [];
   const warnings: string[] = [];
   const { descriptor, errors } = parse(source, { filename: 'Screen.vue' });
   if (errors.length > 0) {
@@ -1170,6 +1195,7 @@ export function vueToIr(source: string, opts: Vue2IrOptions = {}): Vue2IrResult 
 
   // 5) <script setup> 逻辑源码 → 运行时 JS（R12：事件逻辑由原生 JS 引擎执行）
   //    仅支持 JS 子集（无 TS 类型标注、无 import）；超出即编译期警告（后续阶段扩展）
+  for (const w of storeGetterWarnings) if (!warnings.includes(w)) warnings.push(w);
   return {
     screen: {
       id: opts.screenId ?? 'vue-screen',

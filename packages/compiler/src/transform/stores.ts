@@ -24,9 +24,36 @@ export interface StoreDef {
   fnName: string;
   state: StoreStateField[];
   /** getter：name + 可折叠的成员链（`(s) => s.dialog.visible` → stateField='dialog', path='visible'） */
-  getters: { name: string; stateField?: string; path?: string }[];
+  getters: {
+    name: string;
+    /** 可折叠：从 state 字段出发的纯成员链 */
+    stateField?: string;
+    path?: string;
+    /** 含计算逻辑时的底层 state 字段（降级读取用；筛选/排序语义会丢失） */
+    refField?: string;
+    /** 多字段依赖（无法降级到单一 state 字段） */
+    multi?: boolean;
+  }[];
   /** action：name + 形参表 + 函数体（用于折叠成原生赋值；无法折叠则忽略） */
   actions: { name: string; params: string[]; body: string }[];
+}
+
+/**
+ * 方法简写的函数体起点：跳过返回类型里的泛型尖括号（`Array<{ ... }>`），
+ * 取**尖括号之外**的第一个 `{` —— 这样单行多个方法（`a(){}, b(){}`）也能正确定位。
+ */
+function methodBodyStart(text: string, matchIndex: number): number {
+  const parenAt = text.indexOf(')', matchIndex);
+  if (parenAt === -1) return -1;
+  let angle = 0;
+  for (let i = parenAt + 1; i < text.length; i++) {
+    const ch = text[i];
+    if (ch === '<') angle++;
+    else if (ch === '>') angle = Math.max(0, angle - 1);
+    else if (ch === '{' && angle === 0) return i;
+    else if (ch === '}' && angle === 0) return -1;
+  }
+  return -1;
 }
 
 /** 找到 src 中从 start（含）开始的花括号配对结束位置；未闭合返回 -1 */
@@ -128,14 +155,28 @@ export function parseStoreSource(src: string): StoreDef[] {
       const at = body.indexOf('{', gm.index ?? 0);
       const endIdx = at === -1 ? -1 : matchBrace(body, at);
       if (endIdx !== -1) {
-        def.getters = splitTopLevel(body.slice(at + 1, endIdx)).map((x) => {
-          // getter 体：`(s) => s.dialog.visible` / `s => s.count + 1`
-          const m = x.value.match(/^\s*\(?\s*(\w+)\s*\)?\s*=>\s*([\w$.\[\]']+)\s*$/);
-          if (!m) return { name: x.key };
-          const segs = m[2].split('.');
-          if (segs.length < 2 || segs[0] !== m[1]) return { name: x.key };
-          return { name: x.key, stateField: segs[1], path: segs.slice(2).join('.') || undefined };
-        });
+        // getter 是方法简写（`upcoming(state): T { ... }`）或箭头箭头（`isOpen: (s) => s.x.y`），
+        // `key: value` 切分对方法简写无效（标识符后面跟的是形参表），必须两路都扫
+        const block = body.slice(at + 1, endIdx);
+        const found: { name: string; value: string }[] = [];
+        const gM = /(?:^|,)\s*(?:async\s+)?([A-Za-z_$][\w$]*)\s*\(([^)]*)\)\s*(?::[^{]+)?\{/g;
+        let gm2: RegExpExecArray | null;
+        let cursor = 0;
+        while ((gm2 = gM.exec(block))) {
+          const braceAt = methodBodyStart(block, gm2.index);
+          const bodyEnd = braceAt === -1 ? -1 : matchBrace(block, braceAt);
+          if (bodyEnd === -1) break;
+          found.push({ name: gm2[1], value: block.slice(braceAt + 1, bodyEnd).trim() });
+          gM.lastIndex = bodyEnd + 1;
+          cursor = bodyEnd + 1;
+        }
+        // 箭头写法（没被方法扫描吃掉的部分）
+        for (const x of splitTopLevel(block)) {
+          if (!x.value || found.some((f) => f.name === x.key)) continue;
+          found.push({ name: x.key, value: x.value });
+        }
+        void cursor;
+        def.getters = found.map((x) => getterShape(x.name, x.value));
       }
     }
     const am = body.match(/actions\s*:\s*\{/);
@@ -148,7 +189,7 @@ export function parseStoreSource(src: string): StoreDef[] {
         const ARE = /(?:async\s+)?([A-Za-z_$][\w$]*)\s*\(([^)]*)\)\s*\{/g;
         let m: RegExpExecArray | null;
         while ((m = ARE.exec(block))) {
-          const braceAt = block.indexOf('{', m.index);
+          const braceAt = methodBodyStart(block, m.index);
           const bodyEnd = braceAt === -1 ? -1 : matchBrace(block, braceAt);
           if (bodyEnd === -1) break;
           def.actions.push({
@@ -247,4 +288,27 @@ export function parseSharedConstArrays(src: string): Record<string, string> {
     out[m[1]] = src.slice(at + 1, end).trim();
   }
   return out;
+}
+
+/**
+ * R90 getter 形态分析：
+ *  纯成员链（`(s) => s.dialog.visible`）→ 可折叠成点路径；
+ *  其余（遍历/过滤/排序/调用）→ 记录底层 state 字段供降级读取（语义丢失，调用方必须告警）。
+ * state 写法有三种：`(state) => state.list` 形参式、`this.list` 方法体式、`state.list`。
+ */
+function getterShape(name: string, value: string): StoreDef['getters'][number] {
+  const v = value.trim();
+  // 纯成员链
+  const m = v.match(/^\s*\(?\s*(\w+)\s*\)?\s*=>\s*([\w$.\[\]']+)\s*$/);
+  if (m) {
+    const segs = m[2].split('.');
+    if (segs.length >= 2 && segs[0] === m[1]) {
+      return { name, stateField: segs[1], path: segs.slice(2).join('.') || undefined };
+    }
+  }
+  // 降级：找 getter 体里引用到的 state 字段（方法体式 this.x / 形参式 state.x / s.x）
+  const refs = [...v.matchAll(/\b(?:this|state|s)\.([A-Za-z_$][\w$]*)\b/g)].map((r) => r[1]);
+  const uniq = [...new Set(refs)];
+  if (uniq.length === 1) return { name, refField: uniq[0] };
+  return { name, ...(uniq.length > 1 ? { multi: true } : {}) };
 }

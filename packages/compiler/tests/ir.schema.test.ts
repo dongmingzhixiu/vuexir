@@ -69,7 +69,7 @@ describe('IR Schema v0：非法输入拦截', () => {
   it('text 无内容被拒绝（ref 模式豁免：组件 View 内 {{ prop }} → Text(prop)）', () => {
     const r = validateIr(screen(root([{ type: 'text', props: { fontSize: 14 } }])));
     expect(r.ok).toBe(false);
-    expect(r.issues.some((i) => i.message.includes('必须有 props.text / props.ref / props.bind / props.bindExpr 或 bind'))).toBe(true);
+    expect(r.issues.some((i) => i.message.includes('必须有 props.text / props.ref / props.bind / props.bindExpr / props.fieldOf 或 bind'))).toBe(true);
     // ref 模式合法
     const ok = validateIr(screen(root([{ type: 'text', props: { ref: 'value' } }])));
     expect(ok.ok).toBe(true);

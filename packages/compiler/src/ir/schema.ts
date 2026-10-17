@@ -527,8 +527,8 @@ function validateNode(node: IrNode, path: string, issues: IrValidationIssue[], s
   }
 
   // 文本内容：text 节点需 props.text / props.ref（组件 prop 引用）/ props.bind（页面 state，M1）或 bind
-  if (node.type === 'text' && !node.bind && (!node.props || (node.props.text === undefined && node.props.ref === undefined && node.props.bind === undefined && node.props.bindExpr === undefined && node.props.dynField === undefined && node.props.bindParts === undefined))) {
-    issues.push({ path, message: 'text 节点必须有 props.text / props.ref / props.bind / props.bindExpr 或 bind' });
+  if (node.type === 'text' && !node.bind && (!node.props || (node.props.text === undefined && node.props.ref === undefined && node.props.bind === undefined && node.props.bindExpr === undefined && node.props.dynField === undefined && node.props.bindParts === undefined && node.props.fieldOf === undefined))) {
+    issues.push({ path, message: 'text 节点必须有 props.text / props.ref / props.bind / props.bindExpr / props.fieldOf 或 bind' });
   }
   if (node.type === 'button' && !node.bind && (!node.props || node.props.label === undefined)) {
     issues.push({ path, message: 'button 节点必须有 props.label 或 bind' });
