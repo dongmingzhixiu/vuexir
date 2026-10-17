@@ -54,6 +54,9 @@ function addJsExprState(expr: string): string {
   return name;
 }
 
+/** R125 当前生效的 v-for 作用域栈（绕开 loopScope 透传不一致的问题） */
+let activeLoops: { itemKey: string; indexKey?: string }[] = [];
+
 /** R115 是否允许未注册组件降级（由 vueToIr 选项设置） */
 let allowUnknownComponentsFlag = false;
 
@@ -1045,6 +1048,7 @@ export function vueToIr(source: string, opts: Vue2IrOptions = {}): Vue2IrResult 
   jsExprSeq = 0;
   jsExprStates = [];
   allowUnknownComponentsFlag = opts.allowUnknownComponents === true;
+  activeLoops = [];
   const warnings: string[] = [];
   const { descriptor, errors } = parse(source, { filename: 'Screen.vue' });
   if (errors.length > 0) {
@@ -1820,10 +1824,12 @@ function walkElement(
             ...node,
             props: node.props.filter((p) => !(p.type === NodeTypes.DIRECTIVE && p.name === 'for')),
           };
+          activeLoops.push({ itemKey: vfSunk.itemKey, indexKey: vfSunk.indexKey });
           const itemSunk = walkElement(innerNodeSunk, classProps, comboRules, scopedRules, pseudoRules, warnings, state, compTable, propRefs, [
             ...loopScope,
             { itemKey: vfSunk.itemKey, indexKey: vfSunk.indexKey },
           ], ancestorClasses);
+          activeLoops.pop();
           return { type: 'for', vfor: vfSunk, children: [itemSunk] };
         }
       }
@@ -1866,10 +1872,12 @@ function walkElement(
       );
     }
     const innerNode: ElementNode = { ...node, props: node.props.filter((p) => !(p.type === NodeTypes.DIRECTIVE && p.name === 'for')) };
+    activeLoops.push({ itemKey: vf.itemKey, indexKey: vf.indexKey });
     const item = walkElement(innerNode, classProps, comboRules, scopedRules, pseudoRules, warnings, state, compTable, propRefs, [
       ...loopScope,
       { itemKey: vf.itemKey, indexKey: vf.indexKey },
     ], ancestorClasses);
+    activeLoops.pop();
     return { type: 'for', vfor: vf, children: [item] };
   }
   // R76 Vue 内置容器组件（Transition/KeepAlive/Teleport/Suspense/Fragment）→ 透明展开：
@@ -2107,7 +2115,9 @@ function walkElement(
         // 动态列表项属性 {{ item.field }}：基名（dot[0]）命中循环变量才成立
         const dot = name.split('.');
         const base = dot[0];
-        const loopVar = loopScope.find((l) => l.itemKey === base || l.indexKey === base);
+        const loopVar =
+          loopScope.find((l) => l.itemKey === base || l.indexKey === base) ??
+          [...activeLoops].reverse().find((l) => l.itemKey === base || l.indexKey === base);
         const dyn =
           loopVar && dot.length >= 2 && dot[0] === loopVar.itemKey && dot.slice(1).every((seg) => /^\w+$/.test(seg));
         if (!text && !parts.some((p) => 'bind' in p || 'dynField' in p || 'fieldOf' in p)) {
