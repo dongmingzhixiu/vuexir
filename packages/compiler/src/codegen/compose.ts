@@ -459,6 +459,9 @@ function safeBind(name: string, ctx: ComposeCtx, loop?: { itemKey: string; index
 }
 
 function kotlinCondExpr(expr: string, ctx?: ComposeCtx, loop?: { itemKey: string; indexKey?: string }): string {
+  // R128：下沉的条件状态 → 判真
+  const sunk = expr.match(/^__vrnCond:(\w+)$/);
+  if (sunk) return `vrnTruthy(${sunk[1]}.toString())`;
   // R114：条件里引用了原生端不存在的标识符 → 回退为 true（保留内容）并告警，避免整页编译失败
   {
     // 先剥掉字符串字面量，避免把 "success" 之类当成标识符

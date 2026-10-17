@@ -534,6 +534,9 @@ function emitNode(node: IrNode, ctx: Ctx): string {
 
 /** JS 条件表达式 → Swift 兼容：===/!== 为 JS 严格比较，Swift 用 ==/!=；字符串字面量单引号 → 双引号 */
 function swiftCondExpr(expr: string, known?: Set<string>): string {
+  // R128：下沉的条件状态 → 判真
+  const sunk = expr.match(/^__vrnCond:(\w+)$/);
+  if (sunk) return `vrnTruthy(${sunk[1]})`;
   // R114：条件引用原生端不存在的标识符 → true（保留内容），避免整页编译失败
   const knownSet = known && known.size > 0 ? known : currentStateNames;
   if (knownSet && knownSet.size > 0) {

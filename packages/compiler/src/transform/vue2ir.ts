@@ -2088,6 +2088,7 @@ function walkElement(
   //    组件 View 内 {{ prop }}（propRefs）→ 单插值时可整体作为 text ref（Text(prop)）
   //  - 其余（group/image）：递归 walk
   const children: IrNode[] = [];
+  let prevCondExpr: string | undefined;
   if (mapping.type === 'text') {
     let text = '';
     let refOnly: string | undefined;
@@ -2260,7 +2261,28 @@ function walkElement(
         }
         continue;
       }
-      children.push(...walk(child, classProps, comboRules, scopedRules, pseudoRules, warnings, state, compTable, propRefs, loopScope, [...ancestorClasses, ...elementClasses]));
+      // R128：v-else / v-else-if 与前一兄弟互补（此前无条件渲染，空状态块常显）
+      const __kids = walk(child, classProps, comboRules, scopedRules, pseudoRules, warnings, state, compTable, propRefs, loopScope, [
+        ...ancestorClasses,
+        ...elementClasses,
+      ]);
+      if (child.type === NodeTypes.ELEMENT) {
+        const dirs = child.props.filter((p2) => p2.type === NodeTypes.DIRECTIVE) as { name?: string; exp?: { content?: string } }[];
+        const isElse = dirs.some((d) => d.name === 'else');
+        const elseIf = dirs.find((d) => d.name === 'else-if');
+        if (isElse || elseIf) {
+          const prev = prevCondExpr;
+          const own = elseIf?.exp?.content?.trim();
+          if (prev) {
+            const condExpr = own ? `(${prev}) && (${own})` : `!(${prev})`;
+            const stName = addJsExprState(`String(${condExpr})`);
+            for (const k of __kids) k.condition = `__vrnCond:${stName}`;
+          }
+        }
+        const ifDir = dirs.find((d) => d.name === 'if');
+        if (ifDir?.exp?.content) prevCondExpr = ifDir.exp.content.trim();
+      }
+      children.push(...__kids);
     }
   }
 
@@ -2325,7 +2347,19 @@ function walkElement(
     const ownerKnown =
       mCond !== null &&
       ((state?.states ?? []).some((st) => st.name === mCond[1]) || (propRefs?.has(mCond[1]) ?? false));
-    irNode.condition = ownerKnown && mCond ? `__vrnField__:${mCond[1]}:${mCond[2]}` : nc;
+    // R128：条件里的复杂表达式（含 || && 比较、对象字段组合）统一下沉给 JS 运行时求值，
+    // 生成 `__vrnCond:<state>`，两端只判真——不再往条件翻译器里堆规则
+    const simpleCond =
+      /^[A-Za-z_$][\w$]*(\.[A-Za-z_$][\w$]*)?$/.test(nc) ||
+      /^![A-Za-z_$][\w$]*(\.[A-Za-z_$][\w$]*)?$/.test(nc) ||
+      /^[A-Za-z_$][\w$]*(\.length)?\s*(==|!=|>|<|>=|<=)\s*('.*'|".*"|-?\d+)$/.test(nc);
+    const usesLoopVar = activeLoops.some((l) => new RegExp(`\\b${l.itemKey}\\b`).test(nc));
+    if (!simpleCond && !usesLoopVar) {
+      const stName = addJsExprState(`String(${nc})`);
+      irNode.condition = `__vrnCond:${stName}`;
+    } else {
+      irNode.condition = ownerKnown && mCond ? `__vrnField__:${mCond[1]}:${mCond[2]}` : nc;
+    }
   }
   if (activeWhen && activeProps) {
     irNode.active = { when: activeWhen, props: activeProps };
