@@ -1,6 +1,6 @@
 {
   "name": "@dongmingzhixiu/vuexir",
-  "version": "0.4.8",
+  "version": "0.4.9",
   "description": "vrn 命令行：build ios|android、preview、doctor",
   "type": "module",
   "license": "MIT",
@@ -21,8 +21,8 @@
     "LICENSE"
   ],
   "dependencies": {
-    "@dongmingzhixiu/vuexir-compiler": "^0.4.8",
-    "@dongmingzhixiu/vuexir-templates": "^0.4.8"
+    "@dongmingzhixiu/vuexir-compiler": "^0.4.9",
+    "@dongmingzhixiu/vuexir-templates": "^0.4.9"
   },
   "engines": {
     "node": ">=18"
