@@ -1688,6 +1688,10 @@ function walkElement(
   ancestorClasses: string[] = [],
 ): IrNode {
   let elementClasses: string[] = []; // M5 后代选择器：本元素 class 清单（子节点递归传祖先链）
+  // R107：SVG 图标（svg/path/circle/line/rect/polygon/g/defs/use）纯装饰 → 忽略，不阻断编译
+  if (['svg', 'path', 'circle', 'line', 'rect', 'polygon', 'polyline', 'g', 'defs', 'use', 'text', 'ellipse'].includes(node.tag) && node.tag !== 'text') {
+    return { type: 'spacer', props: { height: 0 } };
+  }
   // R104：<br> 换行 → 占位间距（原生端没有行内换行语义）
   if (node.tag === 'br') {
     return { type: 'spacer', props: { height: 8 } };
@@ -1999,6 +2003,9 @@ function walkElement(
             } else if (loopVar || (state && state.states.some((s) => s.name === name))) {
               refOnly = name;
               parts.push({ bind: name });
+            } else if (scriptDeclaredNames.has(name)) {
+              // R106：computed / 普通 const / 解构值 → 运行时求值
+              parts.push({ bind: addJsExprState(textOf(child.content).trim()) });
             } else {
               throw new VueCompileError(
                 `插值 {{ ${name} }}：未在 <script setup> 中声明为 ref 状态（M1 白名单：仅支持已声明状态）`,
@@ -2052,6 +2059,14 @@ function walkElement(
         }
       } else if (child.type === NodeTypes.COMMENT) {
         // 忽略注释
+      } else if (child.type === NodeTypes.ELEMENT && mapping.type === 'text') {
+        // R107：行内嵌套（<b>光<b/></b>、<span><svg/></span>）→ 有文字并入，纯图标忽略
+        const innerText = elementInnerText(child).trim();
+        if (innerText) {
+          text += innerText;
+          parts.push({ text: innerText }); // 同步进 parts，避免只走 bindParts 时丢失
+        }
+        else warnings.push(`<${node.tag}> 内嵌图标元素 <${child.tag}> 已忽略（R107）`);
       } else {
         throw new VueCompileError(`<${node.tag}> 内嵌子元素（行内混合）暂不支持（text 节点仅文本/插值）`);
       }
@@ -2073,13 +2088,17 @@ function walkElement(
     } else {
       const t = text.trim();
       if (!t) {
-        throw new VueCompileError(`<${node.tag}> 无文本内容`);
+        // R106：空的行内元素（图标占位 <i></i>）→ 空文本，内容不丢但也不阻断编译
+        warnings.push(`<${node.tag}> 无文本内容 → 已降级为空占位（R106）`);
+        props.text = ' ';
+      } else {
+        props.text = t;
       }
-      props.text = t;
     }
   } else {
     for (const child of node.children) {
       if (mapping.type === 'button') {
+        if (child.type === NodeTypes.ELEMENT && (child.tag === 'br' || !elementInnerText(child).trim())) continue; // R106/R107：按钮内换行/纯图标忽略
         if (child.type === NodeTypes.TEXT && child.content.trim()) {
           props.label = ((props.label ?? '') + child.content.trim()).trim();
           continue;

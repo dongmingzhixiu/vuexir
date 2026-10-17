@@ -103,9 +103,11 @@ describe('vue2ir · 元素归一化与 CSS 子集', () => {
     expect(warnings.some((w) => w.includes('事件绑定'))).toBe(false);
   });
 
-  it('p 内嵌子元素（行内混合）报错', () => {
+  it('p 内嵌行内元素 → 拍平为文本（R107：内容不丢，行内样式降级）', () => {
     const src = `<template><div class="l"><p>今日已诵<b>12</b>句</p></div></template><style>.l{display:flex;}</style>`;
-    expect(() => vueToIr(src)).toThrow(/行内混合/);
+    const r = vueToIr(src);
+    expect(JSON.stringify(r.screen.ui)).toContain('今日已诵');
+    expect(JSON.stringify(r.screen.ui)).toContain('12');
   });
 });
 
