@@ -1,6 +1,6 @@
 {
   "name": "@dongmingzhixiu/vuexir-templates",
-  "version": "0.4.9",
+  "version": "0.4.10",
   "description": "原生工程模板与运行时桥（SwiftUI Runtime / Compose Runtime / xcodegen / gradle）",
   "type": "module",
   "license": "MIT",
