@@ -16,7 +16,7 @@
 import { readFileSync, writeFileSync, mkdirSync, existsSync, readdirSync, statSync, copyFileSync, rmSync } from 'node:fs';
 import { basename, dirname, extname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { bundleProjectUtils } from './bundle.js';
+import { bundlePageScript, bundleProjectUtils } from './bundle.js';
 import { TEMPLATE_VERSION, VRN_BRIDGE_SWIFT, projectYml as PROJECT_YML, templateFiles } from '@dongmingzhixiu/vuexir-templates';
 import { parseRouter as parseRouterV2, findProjectRoot } from '@dongmingzhixiu/vuexir-compiler';
 import { validateIr } from '@dongmingzhixiu/vuexir-compiler';
@@ -783,7 +783,13 @@ function runTabs(appDir: string, opts: { routerFile?: string } = {}): string {
     });
     for (const w of genWarnings) console.log(`[gen-ios] 生成提示（${tab.id}，tab 页）: ${w}`);
     writeFileSync(join(srcDir, `${pageId}View.swift`), swift);
-    writeFileSync(join(srcDir, `runtime_${pageId}.js`), utilsBundle.code + '\n' + (r.runtime ?? ''));
+    // R118：页面脚本 bundle（computed/store 别名/局部函数）必须排在 utils 之后、runtime 之前
+    const pageBundle = bundlePageScript(tab.file, findProjectRoot(appDir));
+    if (pageBundle) console.log(`[gen-ios] 页面脚本打包：${tab.id}（${pageBundle.names.length} 个绑定）`);
+    writeFileSync(
+      join(srcDir, `runtime_${pageId}.js`),
+      utilsBundle.code + '\n' + (pageBundle?.code ?? '') + '\n' + (r.runtime ?? ''),
+    );
     pageFiles.push(`${pageId}View.swift`);
     pageRuntimes.push({ id: pageId, src: r.runtime ?? '' });
     pageStates.push({

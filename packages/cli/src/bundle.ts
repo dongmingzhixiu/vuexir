@@ -11,9 +11,9 @@
 import { existsSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { buildSync } from 'esbuild';
-import { mkdtempSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { DEXIE_SHIM_SOURCE, PINIA_SHIM_SOURCE, VUE_SHIM_SOURCE } from './shims.js';
+import { DEXIE_SHIM_SOURCE, PINIA_SHIM_SOURCE, VUE_ROUTER_SHIM_SOURCE, VUE_SHIM_SOURCE } from './shims.js';
 
 export interface BundleResult {
   /** IIFE 代码（空串表示没有可打包的 util） */
@@ -85,4 +85,70 @@ export function bundleProjectUtils(projectRoot: string): BundleResult {
   }
 
   return { code: chunks.join('\n'), included, skipped };
+}
+
+/**
+ * R118：把页面 `<script setup>` 打成模块 —— computed / store 别名 / 局部函数
+ * 必须在 JS 侧真实存在，否则模板里的派生值算不出来（这一直是数据为空的根因）。
+ *
+ * 做法：脚本内容写入工程的临时文件（保证相对 import 可解析），末尾追加
+ * `export { <所有顶层绑定> }`，esbuild 打成 IIFE（globalName=__vrnPage），
+ * 运行时即可遍历这些导出并把 ref/computed 的值同步进 stateStore。
+ */
+export function bundlePageScript(
+  pageFile: string,
+  projectRoot: string,
+): { code: string; names: string[] } | null {
+  const src = readFileSync(pageFile, 'utf-8');
+  const m = src.match(/<script setup[^>]*>([\s\S]*?)<\/script>/);
+  if (!m) return null;
+  const body = m[1];
+  // 顶层绑定名（const/let/function）；导出的就是这些
+  const names = [...new Set([...body.matchAll(/(?:const|let|var|function)\s+([A-Za-z_$][\w$]*)/g)].map((x) => x[1]))];
+  if (names.length === 0) return null;
+
+  const shimDir = mkdtempSync(join(tmpdir(), 'vrn-page-'));
+  const vueShim = join(shimDir, 'vue-shim.js');
+  writeFileSync(vueShim, VUE_SHIM_SOURCE);
+  const piniaShim = join(shimDir, 'pinia-shim.js');
+  writeFileSync(piniaShim, PINIA_SHIM_SOURCE);
+  const dexieShim = join(shimDir, 'dexie-shim.js');
+  writeFileSync(dexieShim, DEXIE_SHIM_SOURCE);
+
+  // 入口必须放在工程内，否则 vue/vue-router 等裸导入解析不到 node_modules
+  const entry = join(projectRoot, 'src', `.vrn-page-${Date.now()}.ts`);
+  writeFileSync(entry, `${body}\nexport { ${names.join(', ')} };\n`);
+  const routerShim = join(shimDir, 'vue-router-shim.js');
+  writeFileSync(routerShim, VUE_ROUTER_SHIM_SOURCE);
+
+  try {
+    const out = buildSync({
+      entryPoints: [entry],
+      bundle: true,
+      write: false,
+      format: 'iife',
+      globalName: '__vrnPage',
+      platform: 'neutral',
+      target: 'es2019',
+      logLevel: 'silent',
+      alias: {
+        '@': join(projectRoot, 'src'),
+        vue: vueShim,
+        'vue-router': routerShim,
+        pinia: piniaShim,
+        dexie: dexieShim,
+      },
+    });
+    const code = out.outputFiles?.[0]?.text ?? '';
+    return code ? { code, names } : null;
+  } catch (e) {
+    if (process.env.VRN_DEBUG_BUNDLE) console.error('[bundle] 页面脚本打包失败:', (e as Error).message.split('\n')[0]);
+    return null;
+  } finally {
+    try {
+      unlinkSync(entry);
+    } catch {
+      /* 忽略 */
+    }
+  }
 }

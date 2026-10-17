@@ -352,6 +352,7 @@ __vrnRecompute();
 (function () {
   var __n = 0;
   function __tick() {
+    __vrnSyncPage();
     __vrnRecompute();
     if (++__n < 20 && typeof setTimeout === "function") setTimeout(__tick, 100);
   }
@@ -504,6 +505,24 @@ var router = {
     if (typeof __routerBack === "function") __routerBack();
   }
 };
+// R118 页面状态同步：把页面脚本 bundle（__vrnPage）里的 ref/computed 值写进 stateStore，
+// 模板里 {{ nearest }} / {{ soon }} 这类页面级派生值就有了真实来源
+function __vrnSyncPage() {
+  try {
+    var page = typeof __vrnPage !== "undefined" ? __vrnPage : (typeof globalThis !== "undefined" ? globalThis.__vrnPage : undefined);
+    if (!page) return;
+    for (var k in page) {
+      try {
+        var v = page[k];
+        var val;
+        if (v && typeof v === "object" && "value" in v) val = v.value;   // ref / computed
+        else continue;                                                    // 函数/常量交给模板静态值
+        if (val === undefined || val === null) continue;
+        stateStore[k] = (typeof val === "object") ? JSON.stringify(val) : val;
+      } catch (e) {}
+    }
+  } catch (e) {}
+}
 // R116：store 引导——原生端没有 main.ts 的启动序列，这里对所有 useXxxStore 单例触发 init()
 (function () {
   try {

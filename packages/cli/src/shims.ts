@@ -140,7 +140,7 @@ export default {
  * 单例语义：同一 id 只创建一次（与 Pinia 一致），跨页面共享。
  */
 export const PINIA_SHIM_SOURCE = `
-var __vrnStores = {};
+var __vrnStores = (typeof globalThis !== "undefined" && globalThis.__vrnStores) || (globalThis.__vrnStores = {});
 function __vrnBind(store, obj) {
   Object.keys(obj || {}).forEach(function (k) {
     var v = obj[k];
@@ -184,4 +184,27 @@ export function storeToRefs(store) {
   return out;
 }
 export default { defineStore: defineStore, createPinia: createPinia, storeToRefs: storeToRefs };
+`;
+
+/** R118：vue-router 最小 shim（页面里的 useRoute/useRouter 在原生端由编译器接管导航） */
+export const VUE_ROUTER_SHIM_SOURCE = `
+export function useRoute() {
+  return {
+    params: (typeof globalThis.__vrnRouteParams === "object" && globalThis.__vrnRouteParams) || {},
+    query: {},
+    path: (globalThis.__vrnRoutePath || "/"),
+    name: "",
+  };
+}
+export function useRouter() {
+  return {
+    push: function (p) { try { if (typeof __routerPush === "function") __routerPush(typeof p === "string" ? p : (p && (p.name || p.path)) || ""); } catch (e) {} },
+    replace: function (p) { return this.push(p); },
+    back: function () { try { if (typeof __routerBack === "function") __routerBack(); } catch (e) {} },
+  };
+}
+export function createRouter(o) { return { options: o, install: function () {} }; }
+export function createWebHashHistory() { return {}; }
+export function createWebHistory() { return {}; }
+export default { useRoute: useRoute, useRouter: useRouter, createRouter: createRouter };
 `;
