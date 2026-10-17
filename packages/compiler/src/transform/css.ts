@@ -62,6 +62,13 @@ function mapDecl(prop: string, value: string, warnings: string[]): [string, unkn
 function mapDeclInner(prop: string, value: string, warnings: string[]): [string, unknown][] | null {
   const v = value.trim();
   switch (prop) {
+    case 'grid-template-columns': {
+      // R136：CSS grid 的最小支持——`repeat(N, 1fr)` / `1fr 1fr 1fr` → 列数
+      const rep = String(v).match(/repeat\(\s*(\d+)\s*,/);
+      if (rep) return [['gridColumns', Number(rep[1])]];
+      const cols = String(v).trim().split(/\s+/).filter((x) => x.endsWith('fr')).length;
+      return cols > 1 ? [['gridColumns', cols]] : null;
+    }
     case 'display':
       // display:flex → 容器语义；display:block/none 不映射（flex 为默认容器）
       // R135：CSS 的 display:flex 默认 main axis 是 row（此前默认 column →

@@ -111,6 +111,8 @@ export interface IrProps {
   absTop?: number;
   absLeft?: number;
   absRight?: number;
+  /** R136：CSS grid 的列数（grid-template-columns: repeat(N, 1fr)） */
+  gridColumns?: number;
   absBottom?: number;
   /** M5 变换：scale / rotate(deg) / translate(x,y) → scaleEffect / rotationEffect / offset */
   transform?: { scale?: number; rotate?: number; translateX?: number; translateY?: number };
@@ -375,7 +377,7 @@ const PROPS_VALIDATORS: Record<string, (v: unknown) => boolean> = {
 /** 各节点允许的 props 键（P0 最小集，防 Taro 化：未知 prop 即报错） */
 const NODE_ALLOWED_PROPS: Record<NodeType, string[]> = {
   root: ['width', 'height', 'background'],
-  group: ['width', 'height', 'padding', 'gap', 'flex', 'flexDirection', 'justifyContent', 'alignItems', 'background', 'radius', 'borderWidth', 'borderColor', 'marginTopAuto', 'marginTop', 'marginLeftAuto', 'marginBottom', 'marginRight', 'marginLeft', 'borderSides', 'clip', 'onClick', 'onSet', 'position', 'absTop', 'absLeft', 'absRight', 'absBottom', 'transform', 'show', 'opacity'],
+  group: ['width', 'height', 'padding', 'gap', 'flex', 'flexDirection', 'justifyContent', 'alignItems', 'background', 'radius', 'borderWidth', 'borderColor', 'marginTopAuto', 'marginTop', 'marginLeftAuto', 'marginBottom', 'marginRight', 'marginLeft', 'borderSides', 'clip', 'onClick', 'onSet', 'position', 'absTop', 'absLeft', 'absRight', 'absBottom', 'transform', 'show', 'opacity', 'gridColumns'],
   text: ['width', 'text', 'ref', 'bind', 'bindExpr', 'dynField', 'bindParts', 'fontSize', 'fontWeight', 'textAlign', 'lineHeight', 'color', 'padding', 'colorActive', 'marginLeftAuto', 'marginTop', 'colorDynamic', 'fontSizeDynamic', 'position', 'absTop', 'absLeft', 'absRight', 'absBottom', 'transform', 'show', 'flex', 'opacity', 'onClick', 'onSet', 'fieldOf'],
   image: ['width', 'height', 'src', 'objectFit', 'radius', 'borderSides', 'borderWidth', 'borderColor', 'clip', 'flex', 'marginTop', 'marginBottom', 'marginRight', 'marginLeft', 'position', 'absTop', 'absLeft', 'absRight', 'absBottom', 'transform', 'show', 'opacity'],
   button: ['width', 'height', 'label', 'bind', 'background', 'radius', 'borderWidth', 'borderColor', 'fontSize', 'fontWeight', 'color', 'flex', 'padding', 'marginTopAuto', 'marginTop', 'marginBottom', 'marginRight', 'marginLeft', 'borderSides', 'clip', 'onClick', 'onSet', 'colorDynamic', 'fontSizeDynamic', 'position', 'absTop', 'absLeft', 'absRight', 'absBottom', 'transform', 'show', 'pressBg', 'opacity'],

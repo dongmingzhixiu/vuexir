@@ -717,6 +717,30 @@ function emitNodeInner(node: IrNode, ctx: Ctx): string {
     }
 
     case 'group': {
+      // R136：CSS grid（grid-template-columns: repeat(N,1fr)）→ LazyVGrid
+      if (props.gridColumns !== undefined && (node.children?.length ?? 0) > 0) {
+        const cols = props.gridColumns;
+        const inner = (node.children ?? [])
+          .map((c, i) =>
+            emitNode(c, {
+              parentAxis: 'column',
+              level: L + 2,
+              definiteHeight: false,
+              warnings: ctx.warnings,
+              runtime: ctx.runtime,
+              path: `${ctx.path}[${i}]`,
+              inheritGap: undefined,
+              loop: ctx.loop,
+              dataProps: ctx.dataProps,
+            }),
+          )
+          .join('\n');
+        return [
+          pad(`LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: ${props.gap ?? 0}), count: ${cols}), spacing: ${props.gap ?? 0}) {`),
+          inner,
+          pad('}'),
+        ].join('\n');
+      }
       const dir = props.flexDirection ?? 'column';
       const isRow = dir === 'row';
       const children = node.children ?? [];
