@@ -115,3 +115,32 @@ const dialog = computed(() => ui.dialog)   // 模板里 {{ dialog.title }} / v-i
 **当前已完成的框架修复（本轮）**
 - `bindParts` 判定补 `fieldOf`（单个对象字段段不再被丢弃 → 不再误报「无文本内容」）
 - （前三轮）R75 router v2 / R76 内置组件展开 / R77 空容器降级 / R78 对象字段插值 + 条件标记
+
+## 九、方案 B 验证成功（端到端跑通 · 2026-10-17）
+
+在 `vue-ir-native/migrate/` 下按方案 B 写了两页（扁平状态 + 静态列表 + 子集 CSS），独立入口：
+```
+migrate/router.ts          # home(tab) + /detail(push)
+migrate/pages/Home.vue     # 问候/最近生日卡/即将到来列表/刷新(localStorage)
+migrate/pages/Detail.vue   # 详情 + 读取记录
+```
+命令：`npx vuexir gen ios|android --entry migrate/router.ts --name BirthdayMigrate --out native`
+
+**结果**
+| 端 | 结果 |
+|---|---|
+| iOS 生成 | 1 tab + 1 push，零警告 |
+| **iOS 编译** | `xcodebuild` **BUILD SUCCEEDED** |
+| **iOS 运行** | 模拟器安装启动，截图 OCR：`生日提醒 / 你好 / 今天 / 生日提醒·农历/公历自动换算 / 的生日 / 7 / 天 10月24日 / 查看详情 / 即将到来 / 前 30 天即将到来 / 爸爸 · 11月02日 · 16天` |
+| **Android 编译** | `gradle assembleDebug` **BUILD SUCCESSFUL** |
+| Android 提示 | `async handler「goDetail」含超出协程子集的形状`（localStorage + router.push 混用）→ 见下轮 G15 |
+
+**本轮框架修复**
+1. `parseRouter` 增加 `routerFile` 参数：相对 import（`./pages/X.vue`）以**路由文件所在目录**为基准（此前按工程根解析，路径错位）
+2. 修正 `vrnField` 辅助函数注入位置（一度误插进 `fontExpr` 模板 → 生成 Swift 语法错误；现正确注入 `generateThemeSource` 末尾，`Theme.swift` 含 `func vrnField`）
+
+**下轮缺口**
+| # | 缺口 | 计划 |
+|---|---|---|
+| G15 | async handler 里 `router.push(...)` 未翻译 | `asyncLineKotlin` 增加 `router.push(x)` → `Runtime.push(x)`、`router.back()` → `Runtime.back()` |
+| G16 | `{{ greet() }}` 模板函数调用 | 限定无参纯函数 → 派生状态（本轮已用平铺 ref 规避） |

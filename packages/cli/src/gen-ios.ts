@@ -649,7 +649,7 @@ const TAB_ICONS = ['house.fill', 'book.fill', 'gearshape.fill', 'person.fill', '
 /** M4a 多页目录模式：samples/<name>/ 含 router.ts + pages/*.vue → TabView 工程 */
 function runTabs(appDir: string, opts: { routerFile?: string } = {}): string {
   const routerSrc = readFileSync(opts.routerFile ?? join(appDir, 'router.ts'), 'utf-8');
-  const { tabs, details, warnings: routerWarnings } = parseRouterV2(routerSrc, findProjectRoot(appDir));
+  const { tabs, details, warnings: routerWarnings } = parseRouterV2(routerSrc, findProjectRoot(appDir), opts.routerFile ?? join(appDir, 'router.ts'));
   for (const w of routerWarnings) console.log(`[gen-ios] 路由提示: ${w}`);
   console.log(`[gen-ios] 多页模式: router.ts → ${tabs.length} 个 tab 页面` + (details.length ? ` + ${details.length} 个 push 页面` : ''));
 

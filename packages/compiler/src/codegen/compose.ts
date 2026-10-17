@@ -1154,6 +1154,7 @@ export function findProjectRoot(startDir: string): string {
 function parseRouter(
   src: string,
   dir: string,
+  routerFile?: string,
 ): {
   tabs: { id: string; title: string; file: string; icon: string; path: string }[];
   details: { id: string; title: string; file: string; path: string }[];
@@ -1164,13 +1165,15 @@ function parseRouter(
   for (const m of src.matchAll(/import\s+(\w+)\s+from\s+['"]([^'"]+)['"]/g)) imports[m[1]] = m[2];
 
   /** 别名/相对路径 → 磁盘路径（先找 @/ → src，再退回 appDir 根） */
+  const baseDir = routerFile ? dirname(routerFile) : dir;
   const resolveFile = (spec: string): string => {
     const cands: string[] = [];
     if (spec.startsWith('@/')) {
       const rel = spec.slice(2);
       cands.push(join(dir, 'src', rel), join(dir, rel));
     } else if (spec.startsWith('./') || spec.startsWith('../')) {
-      cands.push(join(dir, spec), join(dir, 'src', spec));
+      // 相对路径以「路由文件所在目录」为基准
+      cands.push(join(baseDir, spec), join(dir, spec));
     } else {
       cands.push(join(dir, spec), join(dir, 'src', spec));
     }
@@ -1301,7 +1304,7 @@ export interface RunTabsOptions {
 
 function runTabs(appDir: string, opts: RunTabsOptions = {}): string {
   const routerSrc = readFileSync(opts.routerFile ?? join(appDir, 'router.ts'), 'utf-8');
-  const { tabs, details, warnings: routerWarnings } = parseRouter(routerSrc, findProjectRoot(appDir));
+  const { tabs, details, warnings: routerWarnings } = parseRouter(routerSrc, findProjectRoot(appDir), opts.routerFile ?? join(appDir, 'router.ts'));
   for (const w of routerWarnings) console.log(`[gen-android] 路由提示: ${w}`);
   console.log(`[gen-android] 多页模式: router.ts → ${tabs.length} 个 tab 页面` + (details.length ? ` + ${details.length} 个 push 页面` : ''));
 
