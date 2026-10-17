@@ -1125,6 +1125,22 @@ function walkElement(
     ], ancestorClasses);
     return { type: 'for', vfor: vf, children: [item] };
   }
+  // R76 Vue 内置容器组件（Transition/KeepAlive/Teleport/Suspense/Fragment）→ 透明展开：
+  // 原生端无过渡动画/缓存语义，但内容必须保留（否则整页编译失败）
+  if (['Transition', 'TransitionGroup', 'KeepAlive', 'Teleport', 'Suspense', 'Fragment'].includes(node.tag)) {
+    const kids: IrNode[] = [];
+    for (const child of node.children) {
+      kids.push(...walk(child, classProps, comboRules, scopedRules, pseudoRules, warnings, state, compTable, propRefs, loopScope, ancestorClasses));
+    }
+    if (kids.length === 0) {
+      warnings.push(`<${node.tag}> 内无内容，已忽略`);
+      return { type: 'group', props: { flexDirection: 'column' }, children: [{ type: 'text', props: { text: ' ' } }] };
+    }
+    warnings.push(`<${node.tag}> 已透明展开（原生端无过渡/缓存语义，仅保留内容，R76）`);
+    if (kids.length === 1) return kids[0];
+    return { type: 'group', props: { flexDirection: 'column' }, children: kids };
+  }
+
   // <template>：逻辑容器（v-if 条件渲染 / 纯透传），不产生 UI 节点
   if (node.tag === 'template') {
     const children: IrNode[] = [];
@@ -1413,9 +1429,17 @@ function walkElement(
     }
   }
 
-  // group 空 children → 报错（容器必须可收敛；R17 容器叶子约束）
+  // R77 空容器（<div class="spacer" /> 等占位写法）→ 降级为 spacer 占位 + 警告，而不是中断整个编译
   if (mapping.type === 'group' && children.length === 0) {
-    throw new VueCompileError(`<${node.tag}> 无内容（容器节点必须含子节点，R17）`);
+    warnings.push(`<${node.tag}> 无子节点 → 降级为占位 spacer（R17/R77；可用 padding/height 表达留白）`);
+    const keep: Record<string, unknown> = {};
+    const src = props as Record<string, unknown>;
+    for (const k of ['width', 'height', 'flex', 'marginTop', 'background']) {
+      if (src[k] !== undefined) keep[k] = src[k];
+    }
+    const spacer: IrNode = { type: 'spacer', props: keep as IrProps };
+    if (cond) spacer.condition = normCond(cond);
+    return spacer;
   }
 
   // overflow:auto → scroll 节点（消费中转标记，避免进入 schema 校验白名单）

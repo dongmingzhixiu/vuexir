@@ -37,5 +37,5 @@ export {
 } from './codegen/swiftui.js';
 
 // 工程脚手架入口（runTabs）：保留在 core 供 CLI 与旧脚本调用；模板由调用方注入（P2）
-export { emitNode, buildNavHost, parseRouter, resolveInput, runTabs } from './codegen/compose.js';
+export { emitNode, buildNavHost, parseRouter, resolveInput, runTabs, findProjectRoot } from './codegen/compose.js';
 export type { RunTabsOptions } from './codegen/compose.js';

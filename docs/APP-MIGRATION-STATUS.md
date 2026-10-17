@@ -42,3 +42,25 @@ meta: { tab: true, title: '首页' },
 ## 四、验收门槛（每阶段）
 
 `npx vuexir gen ios|android` 零/可控警告 → `gradle assembleDebug` + `xcodebuild` 通过 → `npm run dev` 浏览器可跑。
+
+## 五、本轮进展（R75–R77 + 缺口队列）
+
+### 已修复并提交
+| # | 能力 | 说明 |
+|---|---|---|
+| G6 / **R75** | **router 解析器 v2** | 配平扫描（支持多行路由对象）、动态 `component: () => import('@/views/X.vue')`、`@/` 别名 → `<projectRoot>/src`、路径参数 `/detail/:id` → 降级无参 + 警告。gen-ios 与 compose **共用同一份实现**（删除重复解析器） |
+| 新增 | `findProjectRoot()` | 自路由文件目录向上找含 `package.json`/`src` 的工程根（`@/` 别名基准） |
+| **R76** | Vue 内置容器透明展开 | `<Transition>/<KeepAlive>/<Teleport>/<Suspense>/<Fragment>` 保留内容、丢弃动画语义 + 警告（此前直接报「未知标签」中断编译） |
+| **R77** | 空容器降级 | `<div class="footer-pad" />` 等自闭合占位 → 生成 `spacer` + 警告（此前 R17 直接中断） |
+
+### 缺口队列（下一步按序实现，要求①）
+| # | 缺口 | 现状 | 计划 |
+|---|---|---|---|
+| G7 | **对象型状态字段插值** `{{ dialog.title }}` | 报「插值表达式暂不支持」；当前 IR 状态模型是扁平原始值 | **立项 R78**：支持 `state.field` 读取（IR 增加 `bindField`，iOS 走 JSON 字典取值、Android 走 `Store.get`/JSON 解析），或迁移期把字段提升为扁平 state |
+| G8 | 模板内函数调用 `{{ greet() }}` | 不支持 | 立项：仅允许无参纯函数 → 编译期展开为派生状态（或在 handler 里维护） |
+| G9 | `v-else` / `v-else-if` | 仅 `v-if` | 立项：链式条件映射（iOS `if/else`、Compose `if/else`） |
+| G10 | `router.push({ name: 'add' })` 对象形式 | 只支持字符串路径 | 立项：解析对象形式 → 映射到 path |
+| G11 | Pinia / dexie / lz-string | 不支持 | 迁移期处理：对象状态（G7）+ `localStorage` 替换 IndexedDB + 移除压缩导出 |
+
+### 当前生成链路位置
+`gen ios` 已能解析路由（1 tab = HomeView）→ 编译到 HomeView 时依次撞到 `<Transition>`(已修) → 空 div(已修) → `{{ dialog.title }}`(G7 待立项)。**先把 G7–G10 立项实现，再回到整页编译**。

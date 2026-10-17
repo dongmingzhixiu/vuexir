@@ -17,6 +17,7 @@ import { readFileSync, writeFileSync, mkdirSync, existsSync, readdirSync, statSy
 import { basename, dirname, extname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { TEMPLATE_VERSION, projectYml as PROJECT_YML, templateFiles } from '@dongmingzhixiu/vuexir-templates';
+import { parseRouter as parseRouterV2, findProjectRoot } from '@dongmingzhixiu/vuexir-compiler';
 import { validateIr } from '@dongmingzhixiu/vuexir-compiler';
 import type { IrScreen, IrNode } from '@dongmingzhixiu/vuexir-compiler';
 import { generateScreenSource, generateComponentSource, collectTheme, buildTheme, generateThemeSource } from '@dongmingzhixiu/vuexir-compiler';
@@ -644,62 +645,12 @@ const TAB_ICONS = ['house.fill', 'book.fill', 'gearshape.fill', 'person.fill', '
 
 /** 编译期解析 router.ts 子集：import 组件映射 + routes 表（path/name/component/meta.tab/title/icon）
  * M4b：非 tab 路由（无 meta.tab）→ details 列表（router.push → NavigationStack push） */
-function parseRouter(
-  src: string,
-  dir: string,
-): {
-  tabs: { id: string; title: string; file: string; icon: string }[];
-  details: { id: string; title: string; file: string; path: string }[];
-} {
-  const imports: Record<string, string> = {};
-  for (const m of src.matchAll(/import\s+(\w+)\s+from\s+['"]([^'"]+)['"]/g)) imports[m[1]] = m[2];
-  const routes: { path: string; name: string; component: string; meta: Record<string, string> }[] = [];
-  for (const m of src.matchAll(/\{\s*path:\s*'([^']*)'\s*,\s*name:\s*'([^']*)'\s*,\s*component:\s*(\w+)(?:\s*,\s*meta:\s*\{([^}]*)\})?\s*\}/g)) {
-    const meta: Record<string, string> = {};
-    const raw = m[4] ?? '';
-    for (const kv of raw.split(',')) {
-      const mm = kv.match(/^\s*(\w+):\s*(true|false|'([^']*)'|"([^"]*)"|\w+)\s*$/);
-      if (!mm) continue;
-      meta[mm[1]] = mm[2] === 'true' ? 'true' : mm[2] === 'false' ? 'false' : mm[3] ?? mm[4] ?? mm[2];
-    }
-    routes.push({ path: m[1], name: m[2], component: m[3], meta });
-  }
-  // R-VFOBJ-E：空 tab 自动隐藏——tab 页模板无任何文本内容（纯空壳/占位）时从 tab 栏移除；
-  // 有内容（row/line/标题/组件/任意文本）则保留。组合式 API 等文档型 tab 有内容即保留。
-  const tabs = routes
-    .filter((r) => r.meta.tab === 'true')
-    .filter((r) => {
-      const p = join(dir, imports[r.component] ?? '');
-      if (!existsSync(p)) return true;
-      const s = readFileSync(p, 'utf-8');
-      const tpl = s.match(/<template>([\s\S]*)<\/template>/)?.[1] ?? '';
-      const textOnly = tpl.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
-      return textOnly.length > 0;
-    })
-    .map((r, i) => ({
-      id: r.name,
-      title: r.meta.title ?? r.name,
-      file: join(dir, imports[r.component] ?? ''),
-      icon: r.meta.icon ?? TAB_ICONS[i % TAB_ICONS.length],
-    }));
-  const details = routes
-    .filter((r) => r.meta.tab !== 'true')
-    .map((r) => ({
-      id: r.name,
-      title: r.meta.title ?? r.name,
-      file: join(dir, imports[r.component] ?? ''),
-      path: r.path,
-    }));
-  if (tabs.length === 0) {
-    throw new Error('router.ts 未声明 tab 路由（routes 需含 meta: { tab: true }）');
-  }
-  return { tabs, details };
-}
 
 /** M4a 多页目录模式：samples/<name>/ 含 router.ts + pages/*.vue → TabView 工程 */
 function runTabs(appDir: string, opts: { routerFile?: string } = {}): string {
   const routerSrc = readFileSync(opts.routerFile ?? join(appDir, 'router.ts'), 'utf-8');
-  const { tabs, details } = parseRouter(routerSrc, appDir);
+  const { tabs, details, warnings: routerWarnings } = parseRouterV2(routerSrc, findProjectRoot(appDir));
+  for (const w of routerWarnings) console.log(`[gen-ios] 路由提示: ${w}`);
   console.log(`[gen-ios] 多页模式: router.ts → ${tabs.length} 个 tab 页面` + (details.length ? ` + ${details.length} 个 push 页面` : ''));
 
   const projectName = FORCED_PROJECT_NAME ?? toIdentifier(basename(appDir));

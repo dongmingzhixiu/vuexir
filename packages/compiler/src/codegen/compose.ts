@@ -1112,50 +1112,137 @@ function tabLabel(title: string): string {
   return t.length > 2 ? t.match(/.{1,2}/g)!.join('\\n') : t;
 }
 
-function parseRouter(src: string, dir: string): {
+/**
+ * 工程根推导（R75）：路由文件可能在 src/router/index.ts，`@/` 别名需要相对「工程根」解析。
+ * 自 startDir 向上找 含 package.json 或 src/ 的目录（最多 6 层）。
+ */
+export function findProjectRoot(startDir: string): string {
+  let d = startDir;
+  for (let i = 0; i < 6; i += 1) {
+    if (existsSync(join(d, 'package.json')) || existsSync(join(d, 'src'))) return d;
+    const parent = dirname(d);
+    if (parent === d) break;
+    d = parent;
+  }
+  return startDir;
+}
+
+/**
+ * R75 router 解析器 v2：支持真实 Vue 工程的路由写法
+ *  - 静态 import X from 'p' 与 动态 component: () => import('p')
+ *  - `@/` 别名（映射到 <appDir>/src/）与相对路径
+ *  - 多行路由对象（按 {} 配平扫描，不再依赖整行正则）
+ *  - 路径参数（/detail/:id）→ 原生侧降级为无参路径 + 警告（R15）
+ * 返回 tabs/details + warnings（由调用方打印）
+ */
+function parseRouter(
+  src: string,
+  dir: string,
+): {
   tabs: { id: string; title: string; file: string; icon: string; path: string }[];
   details: { id: string; title: string; file: string; path: string }[];
+  warnings: string[];
 } {
+  const warnings: string[] = [];
   const imports: Record<string, string> = {};
   for (const m of src.matchAll(/import\s+(\w+)\s+from\s+['"]([^'"]+)['"]/g)) imports[m[1]] = m[2];
-  const routes: { path: string; name: string; component: string; meta: Record<string, string> }[] = [];
-  for (const m of src.matchAll(/\{\s*path:\s*'([^']*)'\s*,\s*name:\s*'([^']*)'\s*,\s*component:\s*(\w+)(?:\s*,\s*meta:\s*\{([^}]*)\})?\s*\}/g)) {
-    const meta: Record<string, string> = {};
-    const raw = m[4] ?? '';
-    for (const kv of raw.split(',')) {
-      const mm = kv.match(/^\s*(\w+):\s*(true|false|'([^']*)'|"([^"]*)"|\w+)\s*$/);
-      if (!mm) continue;
-      meta[mm[1]] = mm[2] === 'true' ? 'true' : mm[2] === 'false' ? 'false' : mm[3] ?? mm[4] ?? mm[2];
+
+  /** 别名/相对路径 → 磁盘路径（先找 @/ → src，再退回 appDir 根） */
+  const resolveFile = (spec: string): string => {
+    const cands: string[] = [];
+    if (spec.startsWith('@/')) {
+      const rel = spec.slice(2);
+      cands.push(join(dir, 'src', rel), join(dir, rel));
+    } else if (spec.startsWith('./') || spec.startsWith('../')) {
+      cands.push(join(dir, spec), join(dir, 'src', spec));
+    } else {
+      cands.push(join(dir, spec), join(dir, 'src', spec));
     }
-    routes.push({ path: m[1], name: m[2], component: m[3], meta });
+    return cands.find((c) => existsSync(c)) ?? cands[0];
+  };
+
+  // 配平扫描所有「含 path:」的对象块
+  const blocks: string[] = [];
+  for (let i = 0; i < src.length; i += 1) {
+    if (src[i] !== '{') continue;
+    let depth = 0;
+    let quote = '';
+    let j = i;
+    for (; j < src.length; j += 1) {
+      const ch = src[j];
+      if (quote) {
+        if (ch === quote) quote = '';
+        continue;
+      }
+      if (ch === '"' || ch === "'" || ch === '`') {
+        quote = ch;
+        continue;
+      }
+      if (ch === '{') depth += 1;
+      else if (ch === '}') {
+        depth -= 1;
+        if (depth === 0) break;
+      }
+    }
+    const block = src.slice(i, j + 1);
+    if (/\bpath\s*:/.test(block)) blocks.push(block);
+    i = j;
   }
+
+  const routes: { path: string; name: string; component: string; file: string; meta: Record<string, string> }[] = [];
+  for (const block of blocks) {
+    const pm = block.match(/\bpath\s*:\s*['"]([^'"]*)['"]/);
+    if (!pm) continue;
+    const rawPath = pm[1];
+    const nm = block.match(/\bname\s*:\s*['"]([^'"]*)['"]/);
+    const cm = block.match(/\bcomponent\s*:\s*(?:\(\s*\)\s*=>\s*)?import\(\s*['"]([^'"]+)['"]\s*\)|\bcomponent\s*:\s*([A-Za-z_$][\w$]*)/);
+    const compSpec = cm?.[1];
+    const compIdent = cm?.[2];
+    const file = compSpec ? resolveFile(compSpec) : compIdent ? resolveFile(imports[compIdent] ?? '') : '';
+    // meta 解析（允许单行/多行）
+    const meta: Record<string, string> = {};
+    const mm = block.match(/\bmeta\s*:\s*\{([\s\S]*?)\}/);
+    if (mm) {
+      for (const kv of mm[1].split(',')) {
+        const r = kv.match(/^\s*(\w+)\s*:\s*(true|false|'([^']*)'|"([^"]*)"|\w+)\s*$/);
+        if (!r) continue;
+        meta[r[1]] = r[2] === 'true' ? 'true' : r[2] === 'false' ? 'false' : r[3] ?? r[4] ?? r[2];
+      }
+    }
+    const path = rawPath.replace(/\/:\w+\??/g, '');
+    if (path !== rawPath) warnings.push(`路由「${rawPath}」含路径参数，原生侧降级为无参路径「${path || '/'}」（R15）`);
+    routes.push({
+      path: path === '' ? '/' : path,
+      name: nm?.[1] ?? (path.replace(/\//g, '-').replace(/^-|-$/g, '') || 'home'),
+      component: compIdent ?? '',
+      file,
+      meta,
+    });
+  }
+
+  const hasText = (file: string): boolean => {
+    if (!file || !existsSync(file)) return true;
+    const tpl = readFileSync(file, 'utf-8').match(/<template>([\s\S]*)<\/template>/)?.[1] ?? '';
+    return tpl.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim().length > 0;
+  };
+
   const tabs = routes
-    .filter((r) => r.meta.tab === 'true')
-    .filter((r) => {
-      const p = join(dir, imports[r.component] ?? '');
-      if (!existsSync(p)) return true;
-      const s = readFileSync(p, 'utf-8');
-      const tpl = s.match(/<template>([\s\S]*)<\/template>/)?.[1] ?? '';
-      const textOnly = tpl.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
-      return textOnly.length > 0;
-    })
+    .filter((r) => r.meta.tab === 'true' && hasText(r.file))
     .map((r, i) => ({
       id: r.name,
       title: r.meta.title ?? r.name,
-      file: join(dir, imports[r.component] ?? ''),
+      file: r.file,
       icon: r.meta.icon ?? TAB_ICONS[i % TAB_ICONS.length],
       path: r.path,
     }));
   const details = routes
     .filter((r) => r.meta.tab !== 'true')
-    .map((r) => ({
-      id: r.name,
-      title: r.meta.title ?? r.name,
-      file: join(dir, imports[r.component] ?? ''),
-      path: r.path,
-    }));
-  if (tabs.length === 0) throw new Error('router.ts 未声明 tab 路由');
-  return { tabs, details };
+    .map((r) => ({ id: r.name, title: r.meta.title ?? r.name, file: r.file, path: r.path }));
+
+  if (tabs.length === 0) {
+    warnings.push('router 未解析到任何 tab 路由（routes 需含 meta: { tab: true }）');
+  }
+  return { tabs, details, warnings };
 }
 
 /* ================= 工程生成（对位 runTabs） ================= */
@@ -1198,7 +1285,8 @@ export interface RunTabsOptions {
 
 function runTabs(appDir: string, opts: RunTabsOptions = {}): string {
   const routerSrc = readFileSync(opts.routerFile ?? join(appDir, 'router.ts'), 'utf-8');
-  const { tabs, details } = parseRouter(routerSrc, appDir);
+  const { tabs, details, warnings: routerWarnings } = parseRouter(routerSrc, findProjectRoot(appDir));
+  for (const w of routerWarnings) console.log(`[gen-android] 路由提示: ${w}`);
   console.log(`[gen-android] 多页模式: router.ts → ${tabs.length} 个 tab 页面` + (details.length ? ` + ${details.length} 个 push 页面` : ''));
 
   const projectName = opts.projectName ? toPascal(opts.projectName) : toPascal(basename(appDir));
