@@ -21,9 +21,12 @@ import { NodeTypes } from '@vue/compiler-core';
 import type { ElementNode, RootNode, TemplateChildNode } from '@vue/compiler-core';
 import type { IrNode, IrScreen, IrProps, IrVFor } from '../ir/schema.js';
 import { CssParseError, mergeIrProps, parseCss, parseInlineStyle } from './css.js';
-import { buildStoreRegistry, findStoreAliases, type StoreDef } from './stores.js';
+import { buildStoreRegistry, findStoreAliases, parseSharedConstArrays, type StoreDef } from './stores.js';
 
 export class VueCompileError extends Error {}
+
+/** R88 store 文件导出的常量数组（v-for 编译期内联用） */
+let storeConstArrays: Record<string, string> = {};
 
 /** R86 store 别名表：`ui` → StoreDef（每次 vueToIr 重建；与 vforConsts 同风格） */
 let storeAliases: Map<string, StoreDef> = new Map();
@@ -60,12 +63,28 @@ export interface ScreenStateInfo {
  */
 export function extractScreenConstArrays(script: string): Record<string, string> {
   const out: Record<string, string> = {};
-  const re = /const\s+(\w+)\s*=\s*(\[[\s\S]*?\])\s*;?/g;
+  // 允许类型标注（const WAYS: {...}[] = [）且用括号配平，避免嵌套数组被首个 ] 截断（R88）
+  const re = /const\s+([A-Za-z_$][\w$]*)\s*(?::[^=]+)?=\s*\[/g;
   let m: RegExpExecArray | null;
   while ((m = re.exec(script))) {
-    const arr = m[2];
-    const inner = arr.slice(1, -1).trim();
+    const at = script.indexOf('[', m.index + m[0].length - 1);
+    if (at === -1) continue;
+    let depth = 0;
+    let end = -1;
+    for (let i = at; i < script.length; i++) {
+      if (script[i] === '[') depth++;
+      else if (script[i] === ']') {
+        depth--;
+        if (depth === 0) {
+          end = i;
+          break;
+        }
+      }
+    }
+    if (end === -1) continue;
+    const inner = script.slice(at + 1, end).trim();
     if (inner) out[m[1]] = inner;
+    re.lastIndex = end + 1;
   }
   return out;
 }
@@ -641,6 +660,19 @@ function parseVFor(exp: string, warnings: string[], constArrays?: Record<string,
   const body = m[3].trim();
   // M4b 动态列表：in <stateName>（stateStore 数组；Swift 侧 JSON 字符串解码渲染）
   // R-VFOBJ-C：引用 script 顶层 const 数组（const rows = [...]）→ 编译期展开，优先于动态状态判定
+  // R88 store 常量数组（store 文件里 export const SKINS = [...]）与页面常量数组同等待遇
+  if (body in storeConstArrays && !(constArrays && body in constArrays)) {
+    const vf = parseVForArrayInner(storeConstArrays[body], itemKey, indexKey, warnings);
+    if (vf) vf.srcName = body;
+    return vf;
+  }
+  // R88 store 状态数组：v-for="x in ui.list" → 拍平为 ui_list 后按动态列表处理
+  {
+    const flat = flattenStorePath(body);
+    if (flat !== body && /^[A-Za-z_$][\w$]*$/.test(flat)) {
+      return { listState: flat, itemKey, indexKey };
+    }
+  }
   if (/^[A-Za-z_]\w*$/.test(body)) {
     if (constArrays && body in constArrays) {
       const inner = constArrays[body];
@@ -742,8 +774,21 @@ function parseObjectLiteral(s: string): Record<string, string | number> | null {
     const key = trimmed.slice(0, ci).trim().replace(/^['"]|['"]$/g, '');
     const valRaw = trimmed.slice(ci + 1).trim();
     const lit = literalValue(valRaw);
-    if (lit === undefined || typeof lit === 'boolean') return null;
-    obj[key] = lit;
+    if (typeof lit === 'boolean') {
+      // R88：布尔值按字符串保留（列表项属性表只存 string|number，渲染时按文本用）
+      obj[key] = lit ? 'true' : 'false';
+      continue;
+    }
+    if (lit !== undefined) {
+      obj[key] = lit;
+      continue;
+    }
+    // R88：嵌套数组/对象值 → 序列化为 JSON 文本保底（不作为可渲染字段，但不因此整段丢弃）
+    if (/^[\[{]/.test(valRaw) && /[\]}]$/.test(valRaw)) {
+      obj[key] = valRaw.replace(/'([^']*)'/g, (_a, inner: string) => `"${inner}"`);
+      continue;
+    }
+    return null;
   }
   return Object.keys(obj).length > 0 ? obj : null;
 }
@@ -802,6 +847,7 @@ export function vueToIr(source: string, opts: Vue2IrOptions = {}): Vue2IrResult 
   compPosition = new Map();
   vforConsts = {};
   storeAliases = new Map();
+  storeConstArrays = {};
   const warnings: string[] = [];
   const { descriptor, errors } = parse(source, { filename: 'Screen.vue' });
   if (errors.length > 0) {
@@ -906,6 +952,9 @@ export function vueToIr(source: string, opts: Vue2IrOptions = {}): Vue2IrResult 
     }
     // R86 Pinia 折叠：`const ui = useUiStore()` → 把 store.state 拍平成页面状态 `ui_<field>`
     if (opts.storeSources) {
+      for (const src of Object.values(opts.storeSources)) {
+        storeConstArrays = { ...storeConstArrays, ...parseSharedConstArrays(src) };
+      }
       const registry = buildStoreRegistry(opts.storeSources);
       storeAliases = findStoreAliases(src, registry);
       for (const [alias, def] of storeAliases) {
@@ -1757,6 +1806,19 @@ function walkElement(
         continue;
       }
       children.push(...walk(child, classProps, comboRules, scopedRules, pseudoRules, warnings, state, compTable, propRefs, loopScope, [...ancestorClasses, ...elementClasses]));
+    }
+  }
+
+  // R88 续：容器节点不接受文本专属样式（color/fontSize/fontWeight/textAlign/lineHeight）
+  // 原生端容器没有「字体继承」，这类属性会直接触发 IR 校验拒收 → 明确降级 + 警告
+  if (mapping.type === 'group' || mapping.type === 'for') {
+    const TEXT_ONLY = ['color', 'fontSize', 'fontWeight', 'textAlign', 'lineHeight'] as const;
+    const dropped = TEXT_ONLY.filter((k) => (props as Record<string, unknown>)[k] !== undefined);
+    if (dropped.length > 0) {
+      for (const k of dropped) delete (props as Record<string, unknown>)[k];
+      warnings.push(
+        `<${node.tag}> 是容器，文本样式（${dropped.join('/')}）在原生端不继承 → 已忽略；请把样式下沉到具体文本节点（R88）`,
+      );
     }
   }
 

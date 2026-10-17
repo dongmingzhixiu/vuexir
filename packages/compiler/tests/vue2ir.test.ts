@@ -630,4 +630,24 @@ function viaHandler() { ui.reset() }</script>
     expect(r.runtime ?? '').toContain('stateStore.ui_skin = "warm"');
     expect(r.warnings).toEqual([]);
   });
+
+  it('R88 v-for 数据源扩展：store 常量数组（含布尔/嵌套值）与带类型标注的页面常量数组', () => {
+    const storeSrc = `export const SKINS: SkinMeta[] = [
+  { key: 'warm', name: '暖阳', gradient: ['#f6a57a', '#f47c8a'] },
+  { key: 'night', name: '暗夜', dark: true },
+]`;
+    const pageSrc = `<template><div class="page">
+      <div class="row" v-for="s in SKINS" :key="s.key"><p class="t">{{ s.name }}</p></div>
+      <div class="row" v-for="w in WAYS" :key="w.k"><p class="t">{{ w.label }}</p></div>
+    </div></template>
+<script setup>import { useUiStore } from '@/stores/ui'
+const ui = useUiStore()
+const WAYS: { k: string; label: string }[] = [{ k: 'a', label: '扫码' }, { k: 'b', label: '文件' }]</script>
+<style>.page { background: #0b1020; padding: 16px; } .row { display: flex; flex-direction: row; } .t { font-size: 14px; color: #ffffff; }</style>`;
+    const r = vueToIr(pageSrc, { screenId: 'S', storeSources: { 'ui.ts': storeSrc } });
+    const loops = JSON.stringify(r.screen.ui);
+    expect(loops).toContain('"list"');
+    expect(loops).toContain('暖阳');
+    expect(loops).toContain('扫码');
+  });
 });

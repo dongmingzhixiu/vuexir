@@ -215,3 +215,36 @@ export function findStoreAliases(script: string, registry: Map<string, StoreDef>
   }
   return aliases;
 }
+
+/** 找到 src 中从 start（含）开始的方括号配对结束位置；未闭合返回 -1 */
+function matchBracket(src: string, start: number): number {
+  let depth = 0;
+  for (let i = start; i < src.length; i++) {
+    const ch = src[i];
+    if (ch === '[') depth++;
+    else if (ch === ']') {
+      depth--;
+      if (depth === 0) return i;
+    }
+  }
+  return -1;
+}
+
+/**
+ * R88 解析 store 文件里导出的**字面量**常量数组（`export const SKINS: SkinMeta[] = [{...}, ...]`）。
+ * 返回 { 名称 → 数组内部文本 }，交给 v-for 做编译期内联（原生端无 JS 模块系统）。
+ * 含函数调用/变量引用的元素不做过滤（由下游 JSON 化失败时保持原样并告警）。
+ */
+export function parseSharedConstArrays(src: string): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const m of src.matchAll(/export\s+const\s+([A-Za-z_$][\w$]*)\s*(?::[^=]+)?=\s*\[/g)) {
+    // 注意：类型标注里可能先出现 `[`（`SkinMeta[]`），必须从 `=` 之后找数组起始方括号
+    const afterEq = src.indexOf('=', m.index ?? 0);
+    const at = afterEq === -1 ? -1 : src.indexOf('[', afterEq);
+    if (at === -1) continue;
+    const end = matchBracket(src, at);
+    if (end === -1) continue;
+    out[m[1]] = src.slice(at + 1, end).trim();
+  }
+  return out;
+}
