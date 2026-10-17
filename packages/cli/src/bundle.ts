@@ -11,6 +11,9 @@
 import { existsSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { buildSync } from 'esbuild';
+import { mkdtempSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { DEXIE_SHIM_SOURCE } from './shims.js';
 
 export interface BundleResult {
   /** IIFE 代码（空串表示没有可打包的 util） */
@@ -25,6 +28,11 @@ export interface BundleResult {
 export function bundleProjectUtils(projectRoot: string): BundleResult {
   const utilsDir = join(projectRoot, 'src', 'utils');
   if (!existsSync(utilsDir)) return { code: '', included: [], skipped: [] };
+
+  // 把 dexie shim 落到临时文件，打包时用 alias 顶替真实的 dexie 依赖
+  const shimDir = mkdtempSync(join(tmpdir(), 'vrn-shim-'));
+  const dexieShim = join(shimDir, 'dexie-shim.js');
+  writeFileSync(dexieShim, DEXIE_SHIM_SOURCE);
 
   const included: string[] = [];
   const skipped: { file: string; reason: string }[] = [];
@@ -45,7 +53,7 @@ export function bundleProjectUtils(projectRoot: string): BundleResult {
         // 纯类型导入会被擦除；若确实依赖运行期外部包（dexie 等）则整包失败 → 跳过该文件
         external: [],
         logLevel: 'silent',
-        alias: { '@': join(projectRoot, 'src') },
+        alias: { '@': join(projectRoot, 'src'), dexie: dexieShim },
       });
       const code = out.outputFiles?.[0]?.text ?? '';
       if (code) {
