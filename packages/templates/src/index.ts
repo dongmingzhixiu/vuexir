@@ -72,6 +72,8 @@ dependencies {
     implementation("androidx.compose.foundation:foundation")
     implementation("androidx.navigation:navigation-compose:2.8.1")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
+    // R95 Android 端 JS 引擎（与 iOS JavaScriptCore 对位）：业务逻辑在 JS 里跑，原生只做渲染
+    implementation("app.cash.quickjs:quickjs-android:0.9.2")
     androidTestImplementation("androidx.compose.ui:ui-test-junit4:1.6.8")
     androidTestImplementation("androidx.test.ext:junit:1.1.5")
     androidTestImplementation("androidx.test.espresso:espresso-core:3.5.1")
