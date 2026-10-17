@@ -730,6 +730,10 @@ function emitNodeInner(node: IrNode, ctx: Ctx): string {
       const align = isRow ? (ALIGN_MAP[alignRaw] ?? '.top') : (FLEX_START_MAP[alignRaw] ?? '.leading');
       const stack = hasAbsolute ? 'ZStack' : isRow ? 'HStack' : 'VStack';
       const stackAlign = hasAbsolute ? '.topLeading' : align;
+      // R132：ZStack 里必须把「非绝对定位」的兄弟包成一个流式子容器，
+      // 否则它们会全部叠在左上角互相覆盖（主卡名字与日期重叠就是这个原因）
+      const flowChildren = hasAbsolute ? children.filter((c) => c.props?.position !== 'absolute') : [];
+      const absChildren = hasAbsolute ? children.filter((c) => c.props?.position === 'absolute') : [];
       const just = props.justifyContent;
       // R-H4：justify-content 的弹性分配仅在「分配方向」有确定空间时有意义。
       // column（主轴=垂直）需要容器高度确定（CSS：auto 高容器无剩余空间）；
@@ -741,6 +745,51 @@ function emitNodeInner(node: IrNode, ctx: Ctx): string {
       }
       // hasAbsolute 时无 flex 语义（ZStack 叠放）
       const justActive = justFlex && (isRow || selfDefinite) && !hasAbsolute;
+      // R132：绝对定位容器 → 非绝对子节点先包成一个流式 VStack（保持原有纵向排布），
+      // 绝对定位子节点再叠上去；否则全部叠在左上角互相覆盖
+      if (hasAbsolute && flowChildren.length > 0) {
+        const flowNode: IrNode = {
+          type: 'group',
+          props: { ...props, position: undefined, absTop: undefined, absLeft: undefined, absRight: undefined, absBottom: undefined },
+          children: flowChildren,
+        };
+        const flowCode = emitNode(flowNode, {
+          parentAxis: dir,
+          level: L + 1,
+          definiteHeight: selfDefinite,
+          warnings: ctx.warnings,
+          runtime: ctx.runtime,
+          path: `${ctx.path}{flow}`,
+          inheritGap: ctx.inheritGap,
+          loop: ctx.loop,
+          dataProps: ctx.dataProps,
+        });
+        const absCode = absChildren
+          .map((c, i) =>
+            emitNode(c, {
+              parentAxis: dir,
+              level: L + 1,
+              definiteHeight: selfDefinite,
+              warnings: ctx.warnings,
+              runtime: ctx.runtime,
+              path: `${ctx.path}{abs${i}}`,
+              inheritGap: undefined,
+              loop: ctx.loop,
+              dataProps: ctx.dataProps,
+            }),
+          )
+          .join('\n');
+        const bg = props.background !== undefined ? pad(`Color(${props.background})`) : null;
+        return [
+          pad('ZStack(alignment: .topLeading) {'),
+          bg ? indent(L + 1) + bg.trim() : null,
+          flowCode,
+          absCode || null,
+          pad('}'),
+        ]
+          .filter((x): x is string => x !== null)
+          .join('\n');
+      }
       // justifyContent：center → 首尾 Spacer；spaceBetween → 子间 Spacer（仅 column 需高度确定）
       const body: string[] = [];
       if (just === 'center' && justActive) {
