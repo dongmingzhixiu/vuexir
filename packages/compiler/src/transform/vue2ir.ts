@@ -277,6 +277,19 @@ if (typeof queueMicrotask !== "function") {
   };
 }
 
+// R81 原生桥：bridge.toast / bridge.openUrl（iOS 由 __nativeToast/__nativeOpenUrl 宿主函数实现；
+// Android 由编译器把 bridge.* 翻译成 VrnBridge.*；浏览器预览退回 alert/console）
+var bridge = {
+  toast: function (msg) {
+    if (typeof __nativeToast === "function") __nativeToast(String(msg));
+    else if (typeof console !== "undefined") console.log("[bridge.toast]", msg);
+  },
+  openUrl: function (url) {
+    if (typeof __nativeOpenUrl === "function") __nativeOpenUrl(String(url));
+    else if (typeof window !== "undefined") window.open(String(url), "_blank");
+  }
+};
+
 // localStorage → 原生 UserDefaults（D7：vrn. 前缀 + 同步读写）
 var localStorage = {
   getItem: function (k) { return typeof __lsGet === "function" ? __lsGet("vrn." + k) : null; },

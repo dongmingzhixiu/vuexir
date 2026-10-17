@@ -89,3 +89,4 @@ tasks.withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile>().configureEach 
 export function templateFiles(platform: 'ios' | 'android'): string[] {
   return platform === 'ios' ? ['project.yml'] : ['settings.gradle.kts', 'build.gradle.kts', 'app/build.gradle.kts', 'gradle.properties'];
 }
+export { BRIDGE_VERSION, VRN_BRIDGE_SWIFT, VRN_BRIDGE_KT } from './bridge.js';

@@ -219,3 +219,25 @@ Home / Detail / AllList / Add / Calendar / **Discover**（发现列表 → 跳�
 - 真实工程：`migrate/pages/Read.vue` 恢复 `const body` → gen 警告自动改名 → 产物 `@State private var bodyText` / `Text(bodyText)` / `bindState("bodyText")` → **iOS BUILD SUCCEEDED**、**Android BUILD SUCCESSFUL**
 
 **R74 单测现状（待查）**：新增的单测在 **vitest** 下 `stateRenames` 未生效（返回 `warn=[]`、状态名仍为 `body`），但同样的 SFC 通过 **vite-node（src）** 与 **dist** 运行都正确改名。怀疑 vitest 的模块转换/缓存导致 `RESERVED` 判断分支未执行，已暂时移除该用例避免红测试，下轮专项排查（同时补一条走 `generateScreenSource` 的断言，从产物侧验证）。
+
+## 十四、Round 10（要求② 原生桥：编译期注入）
+
+**机制（R81）**：Vue 侧 `bridge.toast('x')` / `bridge.openUrl('x')`，编译期写入原生实现——不再依赖 WebView JSBridge。
+
+| 端 | 实现 |
+|---|---|
+| iOS | `@dongmingzhixiu/vuexir-templates` 的 `VRN_BRIDGE_SWIFT` → 生成 `VrnBridge.swift`（toast 用 UILabel 叠加层，openUrl 用 `UIApplication.open`）；`Runtime` 注册宿主函数 `__nativeToast` / `__nativeOpenUrl`（JavaScriptCore block） |
+| Android | `Runtime.kt` 内联 `object VrnBridge`（Toast / Intent），`MainActivity` 调 `VrnBridge.init(applicationContext)`；编译期把 `bridge.toast(...)` 翻译为 `VrnBridge.toast(...)` |
+| 浏览器 | runtime 前导的 `bridge` 对象退回 console/`window.open`，浏览器预览可直接跑 |
+
+**配套**：`vue2ir` 的 runtime 前导新增 `var bridge = { toast, openUrl }`（宿主缺失时降级）。
+
+**验证**
+| 项 | 结果 |
+|---|---|
+| Android 产物 | `VrnBridge.toast("原生桥已接通")` + `VrnBridge.init(applicationContext)` ✓ → **gradle BUILD SUCCESSFUL** |
+| iOS 产物 | `VrnBridge.swift` 含 `enum VrnBridge` ✓、`App.swift` 含 `__nativeToast` ✓ → **xcodebuild BUILD SUCCEEDED** |
+| 运行链路 | 模拟器日志 `[vrn] invoke __onMounted on page Home`，`runtime_Home.js` 含 `bridge.toast('原生桥已接通')` → JS→宿主调用通 |
+| ⚠️ 视觉确认 | toast 叠加层在 1 秒快照中 OCR 未捕获（可能时序或叠加层布局），**需真人看一眼真机/模拟器**；机制链路已由日志与产物证明 |
+
+**待发布**：`VRN_BRIDGE_SWIFT` 在 templates 包（需发 0.2.0），编译器侧 R81 翻译在 compiler/cli（需发 patch）

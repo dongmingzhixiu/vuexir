@@ -16,7 +16,7 @@
 import { readFileSync, writeFileSync, mkdirSync, existsSync, readdirSync, statSync, copyFileSync, rmSync } from 'node:fs';
 import { basename, dirname, extname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { TEMPLATE_VERSION, projectYml as PROJECT_YML, templateFiles } from '@dongmingzhixiu/vuexir-templates';
+import { TEMPLATE_VERSION, VRN_BRIDGE_SWIFT, projectYml as PROJECT_YML, templateFiles } from '@dongmingzhixiu/vuexir-templates';
 import { parseRouter as parseRouterV2, findProjectRoot } from '@dongmingzhixiu/vuexir-compiler';
 import { validateIr } from '@dongmingzhixiu/vuexir-compiler';
 import type { IrScreen, IrNode } from '@dongmingzhixiu/vuexir-compiler';
@@ -162,6 +162,16 @@ const RUNTIME_SWIFT = `final class Runtime {
             self.jsIntervals[Int(id)] = nil
         }
         ctx.setObject(clearI, forKeyedSubscript: "__nativeClearInterval" as NSString)
+
+        // R81 原生桥宿主函数：bridge.toast / bridge.openUrl（编译期注入的 VrnBridge.swift 提供实现）
+        let nativeToast: @convention(block) (String) -> Void = { msg in
+            VrnBridge.toast(msg)
+        }
+        ctx.setObject(nativeToast, forKeyedSubscript: "__nativeToast" as NSString)
+        let nativeOpenUrl: @convention(block) (String) -> Void = { url in
+            VrnBridge.openUrl(url)
+        }
+        ctx.setObject(nativeOpenUrl, forKeyedSubscript: "__nativeOpenUrl" as NSString)
 
         // M4b router 桥：router.push('/path') / router.back() → 容器导航（静态 handler 由 ContentView onAppear 注册）
         let routerPush: @convention(block) (String) -> Void = { path in
@@ -465,6 +475,7 @@ function runOne(input: string): string | undefined {
   // R42 Theme token：颜色/字体抽离（去重常量，页面与组件共享引用）
   writeFileSync(join(srcDir, 'Theme.swift'), themeSrc);
   writeFileSync(join(srcDir, 'VrnHelpers.swift'), VRN_HELPERS_SWIFT);
+  writeFileSync(join(srcDir, 'VrnBridge.swift'), VRN_BRIDGE_SWIFT);
   writeFileSync(join(outDir, 'project.yml'), PROJECT_YML(projectName, bundleId));
   writeManifest(outDir, 'ios', projectName, bundleId, ['ScreenView.swift', ...compFiles.map((f) => f.name), 'Theme.swift', 'App.swift', 'project.yml', 'runtime.js', 'recite.json']);
   console.log(`[gen-ios] 已生成工程: ${outDir}`);
@@ -779,6 +790,7 @@ function runTabs(appDir: string, opts: { routerFile?: string } = {}): string {
   const theme = buildThemeFromPieces(themePieces);
   writeFileSync(join(srcDir, 'Theme.swift'), generateThemeSource(theme));
   writeFileSync(join(srcDir, 'VrnHelpers.swift'), VRN_HELPERS_SWIFT);
+  writeFileSync(join(srcDir, 'VrnBridge.swift'), VRN_BRIDGE_SWIFT);
   // R-VFOBJ：多页组件合并生成（各页组件表去重 → 独立 XxxView.swift；页面引用点已生成）
   const compSeen = new Set<string>();
   for (const p of themePieces) {

@@ -102,6 +102,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         Store.init(applicationContext)
+        VrnBridge.init(applicationContext)
         // R-SYSTEMBAR：应用固定深色主题（InkBg/InkBar），与系统明暗设置无关。
         // enableEdgeToEdge() 默认用 SystemBarStyle.auto(...)，会跟随系统明暗切换图标明暗——
         // 系统处于浅色模式时给出深色图标，落在深色顶栏/底栏上不可读（真机反馈：系统栏文字看不清）。
@@ -176,6 +177,30 @@ object Store {
     fun get(key: String, def: String = ""): String = prefs?.getString(key, def) ?: def
     fun set(key: String, value: String) { prefs?.edit()?.putString(key, value)?.apply() }
     fun remove(key: String) { prefs?.edit()?.remove(key)?.apply() }
+}
+
+/**
+ * R81 原生桥（Android）——编译期注入；Vue 侧 bridge.toast(...) 由编译器翻译为 VrnBridge.toast(...)
+ * 与 @dongmingzhixiu/vuexir-templates 的 VRN_BRIDGE_KT 保持一致
+ */
+object VrnBridge {
+    private var appCtx: android.content.Context? = null
+    fun init(ctx: android.content.Context) {
+        if (appCtx == null) appCtx = ctx.applicationContext
+    }
+    fun toast(message: String) {
+        val ctx = appCtx ?: return
+        android.os.Handler(ctx.mainLooper).post { android.widget.Toast.makeText(ctx, message, android.widget.Toast.LENGTH_SHORT).show() }
+    }
+    fun openUrl(url: String) {
+        val ctx = appCtx ?: return
+        try {
+            val i = android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(url)).apply { addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK) }
+            ctx.startActivity(i)
+        } catch (e: Throwable) {
+            toast("无法打开链接")
+        }
+    }
 }
 
 object Runtime {
@@ -644,6 +669,12 @@ function asyncLineKotlin(line: string, ctx: ComposeCtx): string | null {
     if (cond === null) return null;
     return `if (${cond}) {`;
   }
+  // R81 原生桥语句：bridge.toast('x') / bridge.openUrl('x') → VrnBridge.*
+  const bm = line.match(/^bridge\.(toast|openUrl)\((.+)\);?$/);
+  if (bm) {
+    const arg = jsExprToKotlin(bm[2].trim());
+    return arg === null ? null : `VrnBridge.${bm[1]}(${arg})`;
+  }
   // G15 router 语句：router.push('x') / router.back() → Runtime.push / Runtime.back
   const rp = line.match(/^router\.push\((.+)\);?$/);
   if (rp) {
@@ -711,6 +742,8 @@ function jsExprToKotlin(expr: string): string | null {
   s = s.replace(/\.length\b(?!\()/g, '.length()');
   // R73 localStorage → Store（函数式写法：getItem 直接用；setItem/removeItem 走语句分支）
   s = s.replace(/localStorage\.getItem\((.+)\)$/g, (_m, k: string) => `Store.get(${k})`);
+  // R81 bridge.* → VrnBridge.*（表达式形态）
+  s = s.replace(/\bbridge\.(toast|openUrl)\(/g, (_m, fn: string) => `VrnBridge.${fn}(`);
   // JS 单引号字符串 → Kotlin 双引号（Kotlin 的单引号是 Char 字面量，'x' 编译不过）
   s = s.replace(/'([^']*)'/g, (_m, inner: string) => `"${inner.replace(/"/g, '\\"')}"`);
   // JS 类型转换 → Kotlin
