@@ -1108,6 +1108,8 @@ export function vueToIr(source: string, opts: Vue2IrOptions = {}): Vue2IrResult 
       scopedRules: cs,
       pseudoRules: cps,
       propNames: script ? extractPropNames(script.content) : new Set(),
+      // R139：组件内部的常量数组（const tabs = [...]）也要能内联进 v-for
+      constArrays: script ? extractScreenConstArrays(script.content) : {},
       refs: new Set(),
     });
   }
@@ -1609,6 +1611,8 @@ interface CompEntry {
   scopedRules: ReturnType<typeof parseCss>['scopedRules'];
   pseudoRules: ReturnType<typeof parseCss>['pseudoRules'];
   propNames: Set<string>;
+  /** R139：组件内部常量数组（v-for 内联用） */
+  constArrays: Record<string, string>;
   /** 组件树实际引用的 prop（text ref 名；隐式声明，不强制 defineProps）——组件树生成后填充 */
   refs: Set<string>;
 }
@@ -1750,6 +1754,9 @@ function buildComponentTree(
   if (roots.length !== 1 || roots[0].type !== NodeTypes.ELEMENT) {
     throw new VueCompileError(`组件 ${comp.name} 需单根元素（<template> 内仅一个根元素）`);
   }
+  // R139：进组件模板前切换常量数组表为「组件自己的常量数组」，出栈后恢复
+  const prevConsts = vforConsts;
+  vforConsts = { ...prevConsts, ...comp.constArrays };
   const tree = walkElement(
     roots[0] as ElementNode,
     comp.classProps,
@@ -1761,6 +1768,7 @@ function buildComponentTree(
     [], // 组件内不支持嵌套组件
     comp.propNames,
   );
+  vforConsts = prevConsts;
   // 组件根布局 props 剥离 → 使用点
   const POSITION_KEYS = ['flex', 'width', 'marginTop', 'marginTopAuto', 'marginLeftAuto'] as const;
   const position: Record<string, unknown> = {};

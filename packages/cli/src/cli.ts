@@ -89,7 +89,13 @@ export async function generate(args: CliArgs, platform: Platform): Promise<strin
     }
     return generateAndroid({ input: inputDir, outDirRoot: outRoot, projectName, bundleId });
   }
-  const out = generateIos({ input: inputDir, outDirRoot: outRoot, projectName, bundleId });
+  const out = generateIos({
+    input: inputDir,
+    outDirRoot: outRoot,
+    projectName,
+    bundleId,
+    ...(explicit && explicit.multiPage ? { routerFile: explicit.entry } : {}),
+  });
   if (!out) throw new Error('[vrn] iOS 生成未返回产物目录');
   return out;
 }
@@ -109,6 +115,8 @@ async function resolveExplicitEntry(
   for (const c of candidates) {
     if (!existsSync(c)) continue;
     if (c.endsWith('.vue')) return { dir: dirname(c), entry: c, multiPage: false };
+    // R140：直接给路由文件（src/router/index.ts 这类非 router.ts 命名）也要认
+    if (/\.(ts|js|mts|mjs)$/.test(c)) return { dir: dirname(c), entry: c, multiPage: true };
     if (existsSync(join(c, 'router.ts'))) return { dir: c, entry: join(c, 'router.ts'), multiPage: true };
     if (existsSync(join(c, 'App.vue'))) return { dir: c, entry: join(c, 'App.vue'), multiPage: false };
   }

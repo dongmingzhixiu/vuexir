@@ -912,6 +912,8 @@ function buildThemeFromPieces(pieces: { ui: IrNode; comps: { name: string; ui: I
 }
 
 export interface GenerateIosOptions {
+  /** 显式路由文件（src/router/index.ts 等非标准命名） */
+  routerFile?: string;
   /** 样例名 / 目录 / 显式 .vue 或 .json 路径；'all' 批量；省略 = 默认 vuexir-demo */
   input?: string;
   /** 产物根（<outDir>/<ProjectName>） */
@@ -927,6 +929,8 @@ export interface GenerateIosOptions {
  * 说明：本函数沿用既有 main 逻辑（多页/单页/批量），仅把路径来源从「仓库布局」改成可注入。
  */
 export function generateIos(opts: GenerateIosOptions = {}): string | undefined {
+  // R141：直接给路由文件（src/router/index.ts）时，目录里并没有 router.ts
+  if (opts.routerFile) return runTabs(dirname(opts.routerFile), { routerFile: opts.routerFile });
   if (opts.outDirRoot) OUT_ROOT = opts.outDirRoot;
   if (opts.samplesRoot) SAMPLES_ROOT_MUT = opts.samplesRoot;
   if (opts.projectName) FORCED_PROJECT_NAME = opts.projectName;
