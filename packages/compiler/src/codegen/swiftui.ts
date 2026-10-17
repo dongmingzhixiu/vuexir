@@ -825,7 +825,7 @@ function emitNodeInner(node: IrNode, ctx: Ctx): string {
       let line = isRef
         ? pad(`Text(${props.ref})`)
         : props.bindExpr !== undefined
-          ? pad(`Text(${props.bindExpr})`)
+          ? pad(`Text(${String(props.bindExpr).includes('.') ? '""' : props.bindExpr})`)
           : props.fieldOf !== undefined
             ? pad(
                 `Text(vrnField(${props.fieldOf.obj}, "${props.fieldOf.field}"${

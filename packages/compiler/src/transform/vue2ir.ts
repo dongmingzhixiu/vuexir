@@ -354,20 +354,6 @@ ${computedStates
   .join('\n')}
 }
 __vrnRecompute();
-// 探针：1.5s 后回显 soon/rest 的真实长度（调试期）
-(function () {
-  if (typeof setTimeout !== "function") return;
-  setTimeout(function () {
-    try {
-      var page = typeof __vrnPage !== "undefined" ? __vrnPage : globalThis.__vrnPage;
-      var msg = "P:";
-      ["soon", "rest", "nearest"].forEach(function (k) {
-        try { var v = page && page[k] ? page[k].value : undefined; msg += k + "=" + (v === undefined ? "undef" : (Array.isArray(v) ? v.length : typeof v)) + " "; } catch (e) { msg += k + "=ERR "; }
-      });
-      if (typeof bridge !== "undefined" && bridge && bridge.toast) bridge.toast(msg.slice(0, 60));
-    } catch (e) {}
-  }, 1500);
-})();
 // R102：异步数据（store init / db 读取）落地后派生值要能跟上——启动后 2s 内持续重算
 (function () {
   var __n = 0;
@@ -1484,12 +1470,19 @@ function walk(
       const tri = parseTernaryExpr(name);
       if (tri) return [{ type: 'text', props: { bindExpr: tri } }];
       // M2：v-for 循环变量（item/index）优先于状态表
-      const loopVar = loopScope.find((l) => l.itemKey === name || l.indexKey === name);
+      const loopVar =
+        loopScope.find((l) => l.itemKey === name || l.indexKey === name) ??
+        [...activeLoops].reverse().find((l) => l.itemKey === name.split('.')[0] || l.indexKey === name.split('.')[0]);
       if (loopVar) {
-        // M4b 动态列表项属性访问 {{ item.field }} → dynField（Swift 侧 [String: Any] 字段取值）
+        // M4b 动态列表项属性访问 {{ item.field }} / item.a.b → dynField（点路径拍平键）
         const dot = name.split('.');
-        if (dot.length === 2 && dot[0] === loopVar.itemKey && /^\w+$/.test(dot[1])) {
-          return [{ type: 'text', props: { dynField: { var: dot[0], field: dot[1] } } }];
+        if (dot.length >= 2 && dot[0] === loopVar.itemKey && dot.slice(1).every((seg) => /^\w+$/.test(seg))) {
+          return [{ type: 'text', props: { dynField: { var: dot[0], field: dot.slice(1).join('.') } } }];
+        }
+        // R126：循环体内出现复杂表达式（三元等）→ 原生端无法静态求值，置空避免非法代码
+        if (!/^[A-Za-z_$][\w$]*(\.[A-Za-z_$][\w$]*)*$/.test(name)) {
+          warnings.push(`v-for 项内复杂表达式「${name.slice(0, 30)}」暂不支持 → 已置空（R126）`);
+          return [{ type: 'text', props: { text: ' ' } }];
         }
         return [{ type: 'text', bind: { key: name } }];
       }
@@ -2189,7 +2182,7 @@ function walkElement(
           continue;
         }
         // 混合段：静态文本之后的插值
-        if (dyn) parts.push({ dynField: { var: dot[0], field: dot[1] } });
+        if (dyn) parts.push({ dynField: { var: dot[0], field: dot.slice(1).join('.') } });
         else if (/^\w+$/.test(name) && (loopVar || (state && state.states.some((s) => s.name === name))))
           parts.push({ bind: name });
         else if (propRefs) parts.push({ bind: name });
