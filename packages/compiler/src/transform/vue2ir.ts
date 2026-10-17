@@ -1430,7 +1430,7 @@ function walkElement(
       } else {
         props.bind = refOnly;
       }
-    } else if (parts.length > 1 || (parts.length === 1 && ('bind' in parts[0] || 'dynField' in parts[0]))) {
+    } else if (parts.length > 1 || (parts.length === 1 && ('bind' in parts[0] || 'dynField' in parts[0] || 'fieldOf' in parts[0]))) {
       props.bindParts = parts;
     } else {
       const t = text.trim();

@@ -91,3 +91,27 @@ meta: { tab: true, title: '首页' },
 
 **仍未通过的点**：`AppDialog.vue` 的 `<h3 v-if="dialog.title">{{ dialog.title }}</h3>` 仍报 `<h3> 无文本内容`。
 根因方向：**元素内容收集路径**（walkElement 里把 TEXT/INTERPOLATION 收成 text/bindParts 的那段）未接入 `fieldOf`；单插值元素在「既非 loopVar 也非 state」时内容被丢弃 → 容器空 → R17 抛错。下一轮要改的是 `walkElement` 的内容收集分支（而非 walk 的 INTERPOLATION 分支）。
+
+## 八、架构级发现（决定后续路线）
+
+**`AppDialog.vue` 等 8 个组件不使用 `defineProps`**，而是直接读 Pinia：
+
+```ts
+const ui = useUiStore()
+const dialog = computed(() => ui.dialog)   // 模板里 {{ dialog.title }} / v-if="dialog.visible"
+```
+
+这与 vuexir 的组件模型（**props 传入**）根本不同，因此：
+- `buildComponentTree` 传给组件的 `propRefs` = defineProps 集合 = 空 → `{{ dialog.title }}` 判定为「非状态对象」→ 占位文本 → `<h3> 无文本内容`
+- 上一轮修的 G12/G13（函数式 prop 对象/条件）**方向正确但不适用于本 App**：它们解决的是 `props.dialog` 形态
+
+### 两条路线（需拍板）
+
+| 方案 | 做法 | 代价 | 收益 |
+|---|---|---|---|
+| **A. 立项 R79：Store 扁平化** | 解析 `useXxxStore()` + store 定义（`state: () => ({...})` / setup store 的 `ref`），把 `store.field` 读/写映射为页面扁平状态（`storeField`），模板/条件/事件全部支持 | 框架大改（对象状态模型、嵌套、computed），预计多轮 | 一次性支持 Pinia 架构的 App（本项目 8 组件 + 5 store 全部适用） |
+| **B. 迁移期改写** | 把这些组件改成 props 传入（store 逻辑提到页面），组件本身不依赖 Pinia | 框架零改动，但每个页面/组件要人工改写 | 快；但不通用，后续同类 App 仍要改写 |
+
+**当前已完成的框架修复（本轮）**
+- `bindParts` 判定补 `fieldOf`（单个对象字段段不再被丢弃 → 不再误报「无文本内容」）
+- （前三轮）R75 router v2 / R76 内置组件展开 / R77 空容器降级 / R78 对象字段插值 + 条件标记
