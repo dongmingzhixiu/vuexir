@@ -891,7 +891,16 @@ function emitNodeInner(node: IrNode, ctx: Ctx): string {
       // M1：页面级 {{ state }} → props.bind / node.bind → Text(<@State 名>)（状态引用，非字面量）
       const isRef = props.ref !== undefined;
       const bindKey = (props.bind as string | undefined) ?? node.bind?.key;
-      const isBind = bindKey !== undefined;
+      // R133：bind 指向的名字必须是真实状态（或循环变量），否则说明作用域丢失 →
+      // 输出空串并告警，绝不能把状态名当文本渲染（日历页出现 Text("_vrnE1") 即是此因）
+      const bindValid =
+        bindKey !== undefined &&
+        (currentStateNames.has(bindKey.split('.')[0]) ||
+          (ctx.loop !== undefined && (ctx.loop.itemKey === bindKey.split('.')[0] || ctx.loop.indexKey === bindKey.split('.')[0])));
+      const isBind = bindKey !== undefined && bindValid;
+      if (bindKey !== undefined && !bindValid) {
+        ctx.warnings.push(`${ctx.path}: 绑定「${bindKey}」在原生端无对应状态/循环变量 → 输出空串（R133）`);
+      }
       const content = props.text !== undefined ? props.text : '';
       const fs = props.fontSize ?? 15;
       let line = isRef
@@ -913,7 +922,11 @@ function emitNodeInner(node: IrNode, ctx: Ctx): string {
                       'text' in p
                         ? swiftStringEscape(p.text)
                         : 'bind' in p
-                          ? `\\(${p.bind})`
+                          ? currentStateNames.has(p.bind.split('.')[0])
+                            ? `\\(${p.bind})`
+                            : ''  // R133：无效绑定 → 空串，避免把状态名当文本
+                          : false
+                            ? ''
                           : 'fieldOf' in p
                             ? `\\(vrnField(${p.fieldOf.obj}, "${p.fieldOf.field}"${
                                 p.fieldOf.fallback !== undefined ? `, "${swiftStringEscape(p.fieldOf.fallback)}"` : ''
