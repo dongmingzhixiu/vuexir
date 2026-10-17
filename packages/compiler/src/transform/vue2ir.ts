@@ -342,6 +342,15 @@ ${computedStates
   .join('\n')}
 }
 __vrnRecompute();
+// R102：异步数据（store init / db 读取）落地后派生值要能跟上——启动后 2s 内持续重算
+(function () {
+  var __n = 0;
+  function __tick() {
+    __vrnRecompute();
+    if (++__n < 20 && typeof setTimeout === "function") setTimeout(__tick, 100);
+  }
+  __tick();
+})();
 `;
   const initPairs = states.map((s) => {
     // M4b 动态列表态：list → JS 真数组（'[]' 或 '["a","b"]' JSON 字面量，Swift JSONSerialization 可解码）
@@ -491,7 +500,7 @@ var router = {
 };
 // handlers（<script setup> 函数体：ref.value → stateStore 重写）
 ${handlerSrc}
-${computedBlock}// onMounted（Swift onAppear → invoke("__onMounted")）
+${computedBlock}${"" /* R102 见 computedBlock 内：仅当存在派生状态时才调度重算循环，避免无谓的定时器 */}// onMounted（Swift onAppear → invoke("__onMounted")）
 ${onMounted !== undefined ? `${onMountedAsync ? 'async ' : ''}function __onMounted() {\n${indentBody(onMounted)}\n}` : ''}`;
 }
 
