@@ -1,0 +1,40 @@
+{
+  "name": "vue-render-native",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "写 Vue SFC → 生成 iOS（SwiftUI）/ Android（Compose）原生工程（编译路线：Vue → IR → 原生源码）",
+  "scripts": {
+    "gen:ios": "vite-node packages/cli/src/gen-ios.ts",
+    "gen:android": "vite-node packages/cli/src/gen-android.ts",
+    "test": "vitest run",
+    "typecheck": "vue-tsc --noEmit",
+    "dev:preview": "vite --config preview/vite.config.ts",
+    "preview": "vite --config preview/vite.config.ts",
+    "dev": "vite --config preview/vite.config.ts",
+    "ios": "bash scripts/ios-run.sh",
+    "ios:vuexir-demo": "bash scripts/ios-run.sh vuexir-demo",
+    "android": "bash scripts/android-run.sh",
+    "android:vuexir-demo": "bash scripts/android-run.sh vuexir-demo"
+  },
+  "dependencies": {
+    "@dongmingzhixiu/vuexir": "^0.1.1",
+    "@vue/compiler-core": "^3.5.43",
+    "@vue/compiler-sfc": "^3.5.43",
+    "postcss": "^8.5.29",
+    "vue-router": "^4.6.4"
+  },
+  "devDependencies": {
+    "@types/node": "^20.19.43",
+    "@vitejs/plugin-vue": "^5.2.4",
+    "sass-embedded": "^1.105.1",
+    "typescript": "^5.9.3",
+    "vite": "^5.4.21",
+    "vitest": "^1.6.1",
+    "vue": "^3.5.44",
+    "vue-tsc": "^2.2.12"
+  },
+  "workspaces": [
+    "packages/*"
+  ]
+}

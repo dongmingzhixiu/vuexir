@@ -1,0 +1,56 @@
+{
+  "name": "@dongmingzhixiu/vuexir-compiler",
+  "version": "0.1.1",
+  "description": "Vue SFC → IR → 原生源码（SwiftUI / Compose）编译器核心：纯函数、零 IO",
+  "type": "module",
+  "license": "MIT",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./schema": {
+      "types": "./dist/[object Object].d.ts",
+      "import": "./dist/[object Object].js"
+    },
+    "./swift": {
+      "types": "./dist/[object Object].d.ts",
+      "import": "./dist/[object Object].js"
+    },
+    "./compose": {
+      "types": "./dist/[object Object].d.ts",
+      "import": "./dist/[object Object].js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "dependencies": {
+    "@vue/compiler-core": "^3.5.43",
+    "@vue/compiler-sfc": "^3.5.43",
+    "postcss": "^8.5.29"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "scripts": {
+    "build": "node ../../scripts/build-packages.mjs --only compiler"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/dongmingzhixiu/vuexir.git",
+    "directory": "packages/compiler"
+  },
+  "homepage": "https://github.com/dongmingzhixiu/vuexir#readme",
+  "bugs": {
+    "url": "https://github.com/dongmingzhixiu/vuexir/issues"
+  },
+  "author": "panvu"
+}

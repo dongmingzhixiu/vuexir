@@ -1,0 +1,54 @@
+{
+  "compilerOptions": {
+    "target": "ES2020",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "strict": true,
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "esModuleInterop": true,
+    "lib": [
+      "ES2020",
+      "DOM",
+      "DOM.Iterable"
+    ],
+    "skipLibCheck": true,
+    "noEmit": true,
+    "types": [
+      "node",
+      "vite/client"
+    ],
+    "paths": {
+      "@dongmingzhixiu/vuexir-compiler": [
+        "packages/compiler/src/index.ts"
+      ],
+      "@dongmingzhixiu/vuexir-compiler/*": [
+        "packages/compiler/src/*"
+      ],
+      "@dongmingzhixiu/vuexir": [
+        "packages/cli/src/cli.ts"
+      ],
+      "@dongmingzhixiu/vuexir-templates": [
+        "packages/templates/src/index.ts"
+      ],
+      "@dongmingzhixiu/vuexir-vite-plugin": [
+        "packages/vite-plugin/src/index.ts"
+      ]
+    },
+    "baseUrl": "."
+  },
+  "include": [
+    "packages/**/*.ts",
+    "packages/**/*.json",
+    "preview/**/*.ts",
+    "preview/**/*.vue",
+    "scripts/**/*.ts"
+  ],
+  "exclude": [
+    "**/node_modules",
+    "**/dist",
+    "compiler/generated",
+    "**/native",
+    "packages/create-vrn-app/templates"
+  ]
+}

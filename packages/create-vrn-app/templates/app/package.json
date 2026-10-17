@@ -1,0 +1,14 @@
+{
+  "name": "my-app",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "native:gen": "vuexir gen ios",
+    "native:build": "vuexir build ios --run",
+    "native:gen:android": "vuexir gen android",
+    "native:build:android": "vuexir build android --run"
+  },
+  "devDependencies": {
+    "vue": "^3.5.0"
+  }
+}

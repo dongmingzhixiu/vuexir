@@ -1,0 +1,48 @@
+{
+  "name": "@dongmingzhixiu/vuexir",
+  "version": "0.1.2",
+  "description": "vrn 命令行：build ios|android、preview、doctor",
+  "type": "module",
+  "license": "MIT",
+  "bin": {
+    "vuexir": "./bin/vrn.mjs",
+    "vrn": "./bin/vrn.mjs"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "bin",
+    "README.md",
+    "LICENSE"
+  ],
+  "dependencies": {
+    "@dongmingzhixiu/vuexir-compiler": "^0.1.0",
+    "@dongmingzhixiu/vuexir-templates": "^0.1.0"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "scripts": {
+    "build": "node ../../scripts/build-packages.mjs --only cli"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/dongmingzhixiu/vuexir.git",
+    "directory": "packages/cli"
+  },
+  "homepage": "https://github.com/dongmingzhixiu/vuexir#readme",
+  "bugs": {
+    "url": "https://github.com/dongmingzhixiu/vuexir/issues"
+  },
+  "author": "panvu"
+}

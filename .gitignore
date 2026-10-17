@@ -1,0 +1,19 @@
+# 依赖
+node_modules/
+
+# 构建产物（可随时由 npm run build:packages / vuexir gen 重新生成）
+compiler/generated/
+dist/
+.swiftmodcache/
+.swiftmodcache/
+.npm-cache/
+
+# 本地归档（历史引擎/预览器/旧产物，不入版本库）
+_archive/
+
+# 本地环境文件
+.DS_Store
+*.local
+.env
+.env.*
+!.env.example

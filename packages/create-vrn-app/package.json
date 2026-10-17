@@ -1,0 +1,32 @@
+{
+  "name": "create-vuexir",
+  "version": "0.1.0",
+  "description": "脚手架：npx create-vrn-app my-app（Vue SFC + router.ts + vrn.config.ts）",
+  "type": "module",
+  "license": "MIT",
+  "bin": {
+    "create-vuexir": "./bin/create.mjs"
+  },
+  "files": [
+    "bin",
+    "templates",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/dongmingzhixiu/vuexir.git",
+    "directory": "packages/create-vrn-app"
+  },
+  "homepage": "https://github.com/dongmingzhixiu/vuexir#readme",
+  "bugs": {
+    "url": "https://github.com/dongmingzhixiu/vuexir/issues"
+  },
+  "author": "panvu"
+}
