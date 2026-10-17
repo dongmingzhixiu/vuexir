@@ -222,3 +222,23 @@ npm run publish:pkgs -- --no-build    # 跳过 dist 构建
 - **幂等**：每包先 `npm view <name>@<version> version`，已存在就跳过 → 失败可重复执行
 - **2FA**：命中 `Two-factor authentication / EOTP` 时，优先用 `--otp` / `NPM_OTP`，否则交互提示输入后重试一次
 - **路径坑**：脚本用 `cwd: packages/<dir>` 发布，规避 `npm publish packages/x` 被当成 git 简写（`github:packages/x`）的老问题
+
+---
+
+## 发布记录 2026-10-18 · 0.2.0 全量发布
+
+**已发布（registry 实测可见）**
+
+| 包 | 版本 | 说明 |
+| --- | --- | --- |
+| `@dongmingzhixiu/vuexir-compiler` | **0.2.0 / 0.2.1** | R82 子路径导出修复 + R84–R92 编译器能力 |
+| `@dongmingzhixiu/vuexir-templates` | **0.2.0** | 新增 `VRN_BRIDGE_SWIFT` / `VRN_BRIDGE_KT` 导出 |
+| `@dongmingzhixiu/vuexir` | **0.2.0** | CLI |
+| `@dongmingzhixiu/vuexir-vite-plugin` | **0.2.0** | 预览器随包发布（`files: ["dist","preview",...]`） |
+| `create-vuexir` | **0.2.0** | 脚手架 |
+
+**发布流程注意（npm 新行为）**：`npm publish` 现在返回「Your package is being processed and may take a few minutes」，版本进 registry 需要几十秒到数分钟才出现在 `versions`/`dist-tags` 里；在此期间重发同版本会报 `409 Cannot publish over previously staged version`。**不要在报错后立刻改版本重发**，先等 1–2 分钟确认。
+
+**用已发布包验证（而非本地 dist）**：临时目录 `npm i @dongmingzhixiu/vuexir@0.2.0` → `@dongmingzhixiu/vuexir-compiler/swift|schema|compose` 三个子路径导入全部成功（R82 修复生效，旧版会报 `dist/[object Object].js` 找不到）；`vite-plugin/preview/` 四个文件随包发布；用**registry 的 CLI** 对 birthday-app 执行 `vrn gen ios|android` → iOS `BUILD SUCCEEDED`、Android `BUILD SUCCESSFUL`、模拟器装机 OCR 正常、剪贴板桥实测 `vrn-bridge-ok`。
+
+**npm 缓存坑**：registry 已有 0.2.0 但 `npm i pkg@0.2.0` 报 `notarget No matching version` —— 本地 metadata 缓存未刷新，需 `npm cache clean --force` / `--prefer-online`。
