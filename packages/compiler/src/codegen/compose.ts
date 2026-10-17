@@ -335,9 +335,28 @@ class NavTest {
 
 /* ================= IR → Compose 生成 ================= */
 
-/** hex → Compose Color 表达式 */
+/**
+ * 颜色 → Compose Color 表达式。
+ * 支持 #rgb/#rrggbb 与 rgb()/rgba()（rgba 必须带 alpha，否则会拼出 `0xFFRGBA(...)` 这种非法字面量）。
+ */
 function colorExpr(c: string): string {
-  const hex = c.replace('#', '').toUpperCase();
+  const raw = c.trim();
+  const fn = raw.match(/^rgba?\(([^)]+)\)$/i);
+  if (fn) {
+    const parts = fn[1].split(',').map((t) => Number(t.trim()));
+    const [r, g, b] = parts;
+    const a = parts.length > 3 && Number.isFinite(parts[3]) ? parts[3] : 1;
+    if ([r, g, b].every((n) => Number.isFinite(n))) {
+      const hex = `FF${Math.round(r).toString(16).padStart(2, '0')}${Math.round(g)
+        .toString(16)
+        .padStart(2, '0')}${Math.round(b).toString(16).padStart(2, '0')}`.toUpperCase();
+      const alpha = `0x${Math.round(a * 255)
+        .toString(16)
+        .padStart(2, '0')}`.toUpperCase();
+      return `Color(0x${alpha.slice(2)}${hex.slice(2)})`;
+    }
+  }
+  const hex = raw.replace('#', '').toUpperCase();
   const full = hex.length === 3 ? hex.split('').map((h) => h + h).join('') : hex;
   return `Color(0xFF${full.padEnd(6, '0')})`;
 }
@@ -599,7 +618,8 @@ function inlineHandlerKotlin(fn: { name: string; params: string; body: string })
       return null;
     }
   }
-  return out.length > 0 ? out.join('\n') : null;
+  // 单个 lambda 内联：多语句必须用 '; ' 连接（裸换行会让 `clickable { a\nb = c }` 语法错）
+  return out.length > 0 ? out.join('; ') : null;
 }
 
 /** 点击事件 → Kotlin 表达式（A5：onSet 内联赋值；onClick 模式识别：自增减/路由 push/无参 handler 内联/其他 JS TODO） */

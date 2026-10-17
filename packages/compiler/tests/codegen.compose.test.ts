@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { buildNavHost, emitNode, parseRouter } from '../src/codegen/compose';
+import { vueToIr } from '../src/transform/vue2ir';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import type { IrNode } from '../src/ir/schema';
@@ -208,5 +209,17 @@ describe('R72 Android 协程生成（async handler 形状子集）', () => {
     const out = emitNode(node, localCtx, 1);
     expect(out).toContain('形状超出协程子集');
     expect(localCtx.warnings.some((w) => w.includes('超出协程子集'))).toBe(true);
+  });
+});
+
+describe('R94 Compose 颜色与内联 lambda', () => {
+  it('rgba() 生成合法 Color 字面量（不再拼出 0xFFRGBA(...)）', () => {
+    const src = `<template><div class="page"><div class="mask"><p class="t">遮罩</p></div></div></template>
+<style>.page { background: #0b1020; } .mask { background: rgba(0,0,0,0.45); padding: 20px; } .t { font-size: 14px; color: #ffffff; }</style>`;
+    const { screen } = vueToIr(src, { screenId: 'Mask' });
+    const localCtx = { warnings: [] as string[], pageId: 'p', states: [], handlers: [] };
+    const kt = emitNode(screen.ui, localCtx, 1);
+    expect(kt).not.toContain('RGBA');
+    expect(kt).toMatch(/Color\(0x[0-9A-F]{8}\)/);
   });
 });
