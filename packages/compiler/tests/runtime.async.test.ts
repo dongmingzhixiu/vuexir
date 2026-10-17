@@ -183,7 +183,8 @@ const upper = computed(() => greet.value + ' · 光')
     const r = vueToIr(src, { screenId: 'C' });
     const st = (r.screen.state ?? []).find((x) => x.name === 'upper');
     expect(st?.computed).toContain('stateStore.greet');
-    expect(r.runtime ?? '').toContain('stateStore.upper = String(stateStore.greet');
+    expect(r.runtime ?? '').toContain('stateStore.greet + \' · 光\'');
+    expect(r.runtime ?? '').toContain('stateStore.upper');
     expect(r.runtime ?? '').toContain('__vrnRecompute()');
   });
 });

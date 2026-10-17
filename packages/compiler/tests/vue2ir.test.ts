@@ -318,10 +318,15 @@ function reset() { count.value = 0 }
     expect(() => vueToIr(src)).toThrow(/未在 <script setup> 中声明为 ref 状态/);
   });
 
-  it('插值表达式 {{ count + 1 }} → 编译报错（M1 白名单：仅纯状态名）', () => {
-    const src = `<template><span>{{ count + 1 }}</span></template>
-<script setup>const count = ref(0)</script><style></style>`;
-    expect(() => vueToIr(src)).toThrow(/仅支持纯状态名/);
+  it('表达式下沉：{{ count + 1 }} 改由 JS 运行时求值（R98）', () => {
+    const src = `<template><div class="page"><p class="t">{{ count + 1 }}</p></div></template>
+<script setup>const count = ref(1)</script>
+<style>.page { background: #0f1832; } .t { font-size: 14px; color: #ffffff; }</style>`;
+    const r = vueToIr(src);
+    const ui = JSON.stringify(r.screen.ui);
+    expect(ui).toContain('"_vrnE0"');
+    expect((r.screen.state ?? []).some((st) => st.name === '_vrnE0' && String(st.computed).includes('count'))).toBe(true);
+    expect(r.runtime ?? '').toContain('stateStore._vrnE0');
   });
 
   it('v-model 绑定 number state → warning 忽略（仅 string state 可绑 TextField）', () => {

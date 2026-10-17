@@ -34,6 +34,26 @@ let derivedNames: Map<string, string> = new Map();
 /** R88 store 文件导出的常量数组（v-for 编译期内联用） */
 let storeConstArrays: Record<string, string> = {};
 
+/** R98 P3 表达式下沉：无法静态翻译的模板表达式 → 运行时求值状态（复用 R96 computed 通道） */
+let jsExprSeq = 0;
+let jsExprStates: { name: string; init: string; computed: string }[] = [];
+let jsExprStateNames: string[] = [];
+
+/** 把一段 JS 表达式注册为运行时求值状态，返回状态名（模板 bind 用） */
+function addJsExprState(expr: string): string {
+  const name = `_vrnE${jsExprSeq++}`;
+  // ① ref.value → stateStore.x；② 裸状态名 → stateStore.x（对象态/字符串态都要走 stateStore，
+  //    否则 JS 里没有这个变量）；③ 形如 fn( 的调用不重写（那是 utils bundle 提供的全局函数）
+  let js = expr.replace(/\b([A-Za-z_$][\w$]*)\.value\b/g, (all, id: string) =>
+    jsExprStateNames.includes(id) ? `stateStore.${id}` : all,
+  );
+  js = js.replace(/(?<![.\w$])([A-Za-z_$][\w$]*)(?!\s*\()/g, (all, id: string) =>
+    jsExprStateNames.includes(id) ? `stateStore.${id}` : all,
+  );
+  jsExprStates.push({ name, init: '', computed: js });
+  return name;
+}
+
 /** R86 store 别名表：`ui` → StoreDef（每次 vueToIr 重建；与 vforConsts 同风格） */
 let storeAliases: Map<string, StoreDef> = new Map();
 
@@ -293,7 +313,13 @@ export function rewriteStateRefs(body: string, names: string[]): string {
 
 /** 生成 runtime.js 完整内容（M3：stateStore Proxy + handlers + onMounted + localStorage shim） */
 export function generateRuntimeSource(
-  states: { name: string; init: number | string | boolean; list?: boolean; computed?: string }[],
+  states: {
+    name: string;
+    init: number | string | boolean;
+    list?: boolean;
+    obj?: boolean;
+    computed?: string;
+  }[],
   handlers: { name: string; params: string; body: string; async?: boolean }[],
   onMounted: string | undefined,
   onMountedAsync = false,
@@ -307,14 +333,22 @@ export function generateRuntimeSource(
 // R96 computed 求值：页面里的 computed(() => expr) 原样在 JS 里算，结果写回状态
 function __vrnRecompute() {
 ${computedStates
-  .map((st) => `  try { stateStore.${st.name} = String(${st.computed}); } catch (e) { /* 求值失败保持初值 */ }`)
+  .map(
+    (st) =>
+      // 注意：求值状态在 IR 里以空串声明（原生 @State 是 String），必须字符串化后再推送，
+      // 否则 iOS 侧类型不匹配会丢掉值；代价是这条链上的算术会退化成字符串拼接（见 RULES R98 限制）
+      `  try { var __v = (${st.computed}); stateStore.${st.name} = (__v === null || __v === undefined) ? '' : String(__v); } catch (e) { /* 求值失败保持初值 */ }`,
+  )
   .join('\n')}
 }
 __vrnRecompute();
 `;
   const initPairs = states.map((s) => {
     // M4b 动态列表态：list → JS 真数组（'[]' 或 '["a","b"]' JSON 字面量，Swift JSONSerialization 可解码）
-    const v = s.list
+    // R98：对象态在 JS 侧要是真对象（原生侧仍收 JSON 字符串），否则 {{ form.name }} 求值失败
+    const v = s.obj && typeof s.init === 'string'
+      ? `JSON.parse(${JSON.stringify(s.init)})`
+      : s.list
       ? String(s.init)
       : s.init === '[]'
         ? '[]'
@@ -326,7 +360,13 @@ __vrnRecompute();
     return `  ${s.name}: ${v}`;
   });
   const handlerSrc = handlers
-    .map((h) => `${h.async ? 'async ' : ''}function ${h.name}(${h.params}) {\n${indentBody(h.body)}\n}`)
+    .map(
+      (h) =>
+        `${h.async ? 'async ' : ''}function ${h.name}(${h.params}) {\n${indentBody(h.body)}\n${
+          // R96/R98：改完状态后重算派生值（computed / 表达式下沉），否则界面不会跟着变
+          (states.some((st) => st.computed) ? '  if (typeof __vrnRecompute === "function") __vrnRecompute();\n' : '')
+        }}`,
+    )
     .join('\n');
   return `// vue-render-native · M3 状态运行时（JavaScriptCore 宿主；语义与 QuickJS 对齐，R12）
 // stateStore：Swift @State 与 JS 侧状态注册表的双向同步桥（JS 改 → __setState 写回原生；Swift push 经 __fromSwift 防回环）
@@ -911,6 +951,8 @@ export function vueToIr(source: string, opts: Vue2IrOptions = {}): Vue2IrResult 
   storeConstArrays = {};
   derivedNames = new Map();
   storeGetterWarnings = [];
+  jsExprSeq = 0;
+  jsExprStates = [];
   const warnings: string[] = [];
   const { descriptor, errors } = parse(source, { filename: 'Screen.vue' });
   if (errors.length > 0) {
@@ -1084,6 +1126,8 @@ export function vueToIr(source: string, opts: Vue2IrOptions = {}): Vue2IrResult 
       }
       if (value !== undefined) stateInfo.states.push({ name, init: value });
     }
+    // R98：把当前状态名快照给表达式下沉用（walk 阶段据此把裸状态名重写成 stateStore.x）
+    jsExprStateNames = stateInfo.states.map((st) => st.name);
     // R74：状态名撞原生保留成员（SwiftUI `body`、Kotlin 关键字）→ 自动改名 + 警告（不再只警告导致后续编译失败）
     {
       const RESERVED = ['body', 'self', 'init', 'class', 'object', 'fun', 'val', 'var', 'when', 'is', 'in'];
@@ -1238,6 +1282,19 @@ export function vueToIr(source: string, opts: Vue2IrOptions = {}): Vue2IrResult 
 
   // 5) <script setup> 逻辑源码 → 运行时 JS（R12：事件逻辑由原生 JS 引擎执行）
   //    仅支持 JS 子集（无 TS 类型标注、无 import）；超出即编译期警告（后续阶段扩展）
+  // R98 P3：把模板表达式下沉产生的求值状态并入页面状态，并重建 runtime（含 recompute）
+  if (jsExprStates.length > 0 && stateInfo) {
+    for (const st of jsExprStates) {
+      if (!stateInfo.states.some((x) => x.name === st.name)) stateInfo.states.push({ ...st });
+    }
+    runtime = generateRuntimeSource(
+      stateInfo.states,
+      handlers ?? [],
+      onMountedBody,
+      onMountedAsync,
+    );
+    warnings.push(`模板表达式下沉：${jsExprStates.length} 处动态表达式改由 JS 运行时求值（R98）`);
+  }
   for (const w of storeGetterWarnings) if (!warnings.includes(w)) warnings.push(w);
   return {
     screen: {
@@ -1911,9 +1968,9 @@ function walkElement(
             parts.push({ text: ' ' });
             continue;
           }
-          throw new VueCompileError(
-            `插值表达式 {{ ${name} }} 暂不支持（M1 仅支持纯状态名；三元/比较表达式 M2 白名单；动态列表项属性 M4b）`,
-          );
+          // R98：元素文本里的复杂表达式同样下沉给 JS 运行时
+          parts.push({ bind: addJsExprState(textOf(child.content).trim()) });
+          continue;
         }
         // 混合段：静态文本之后的插值
         if (dyn) parts.push({ dynField: { var: dot[0], field: dot[1] } });
@@ -1926,9 +1983,8 @@ function walkElement(
           if (mp && (state?.states ?? []).some((st) => st.name === mp.obj)) {
             parts.push({ fieldOf: { obj: mp.obj, field: mp.field } });
           } else {
-            throw new VueCompileError(
-              `混合文本内插值 {{ ${name} }} 暂不支持（仅支持已声明状态 / 循环变量 / 动态列表项属性 / 已声明对象的点路径 R85）`,
-            );
+            // R98：混合文本里的复杂表达式同样下沉
+            parts.push({ bind: addJsExprState(textOf(child.content).trim()) });
           }
         }
       } else if (child.type === NodeTypes.COMMENT) {
