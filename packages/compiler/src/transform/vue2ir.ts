@@ -427,9 +427,84 @@ export function swiftExpr(exp: string): string | null {
 
 /** @click="fn(arg)" → 若 fn 是已提取的 setter，内联为状态赋值 { var, value, kind }（M1 扩展无参表达式 setter）
  *  M2：直接赋值表达式 `selected = item` / `selected = i`（列表选中）同样内联 */
+/**
+ * R87 store action 折叠：把 `ui.setSkin('night')` 解析成页面状态赋值。
+ * 只认三种简单体：`this.f = <字面量>` / `this.f = <形参>`（调用处实参替代）/ `this.f++`。
+ * 返回 null 表示不可折叠（调用方保留原样并给 warning）。
+ */
+function resolveStoreAction(
+  alias: string,
+  actionName: string,
+  argsRaw: string,
+  warn?: (msg: string) => void,
+):
+  | { var: string; value: number | string; kind: 'literal' | 'expr' }
+  | null {
+  const def = storeAliases.get(alias);
+  if (!def) return null;
+  const act = def.actions.find((a) => a.name === actionName);
+  if (!act) return null;
+  // 只取第一条语句：`this.skin = skin; void setSetting(...)` 里状态赋值可折叠，持久化副作用丢弃（给 warning）
+  const stmts = act.body
+    .split(/[\n;]+/)
+    .map((t) => t.trim())
+    .filter(Boolean);
+  const body = (stmts[0] ?? '').replace(/;\s*$/, '').trim();
+  const args = argsRaw
+    .split(',')
+    .map((a) => a.trim())
+    .filter(Boolean);
+  // this.f = <rhs>
+  let m = body.match(/^this\.(\w+)\s*=\s*([\s\S]+)$/);
+  if (m) {
+    const field = m[1];
+    if (!def.state.some((f) => f.name === field)) return null;
+    let rhs = m[2].trim();
+    const pIdx = act.params.indexOf(rhs);
+    if (pIdx !== -1) {
+      if (args.length <= pIdx) return null;
+      rhs = args[pIdx];
+    } else if (act.params.some((p) => new RegExp(`\\b${p}\\b`).test(rhs))) {
+      return null; // 体里对形参做了运算 → 不折叠
+    }
+    if (stmts.length > 1) {
+      warn?.(`store action「${actionName}」已折叠状态赋值，其余语句（${stmts.slice(1).join('; ')}）未折叠（R87）`);
+    }
+    if (/^-?\d+(\.\d+)?$/.test(rhs)) return { var: `${alias}_${field}`, value: Number(rhs), kind: 'literal' };
+    if (/^'[^']*'$|^"[^"]*"$/.test(rhs)) return { var: `${alias}_${field}`, value: rhs.slice(1, -1), kind: 'literal' };
+    const expr = swiftExpr(rhs);
+    return expr === null ? null : { var: `${alias}_${field}`, value: expr, kind: 'expr' };
+  }
+  // this.f++ / this.f--
+  m = body.match(/^this\.(\w+)\s*(\+\+|--)$/);
+  if (m && def.state.some((f) => f.name === m[1])) {
+    if (stmts.length > 1) warn?.(`store action「${actionName}」已折叠状态赋值，其余语句（${stmts.slice(1).join('; ')}）未折叠（R87）`);
+    const v = `${alias}_${m[1]}`;
+    return { var: v, value: `${v} ${m[2] === '++' ? '+' : '-'} 1`, kind: 'expr' };
+  }
+  return null;
+}
+
+/** R87 把 handler 体内 `alias.action(...)` 折成 `stateStore.alias_field = <值>`（双端可译） */
+function foldStoreActionsInBody(body: string): string {
+  if (storeAliases.size === 0) return body;
+  let out = body;
+  for (const [alias, def] of storeAliases) {
+    for (const act of def.actions) {
+      const re = new RegExp(`\\b${alias}\\.${act.name}\\(([^)]*)\\)`, 'g');
+      out = out.replace(re, (whole, args: string) => {
+        const r = resolveStoreAction(alias, act.name, args);
+        return r === null ? whole : `stateStore.${r.var} = ${r.kind === 'literal' && typeof r.value === 'string' ? JSON.stringify(r.value) : String(r.value)}`;
+      });
+    }
+  }
+  return out;
+}
+
 export function resolveSetCall(
   handler: string,
   state: ScreenStateInfo,
+  warn?: (msg: string) => void,
 ): { var: string; value: number | string; kind: 'literal' | 'expr' } | null {
   const t = handler.trim();
   // M2 直接赋值：目标必须是已声明状态
@@ -441,6 +516,12 @@ export function resolveSetCall(
     const expr = swiftExpr(rhs);
     if (expr !== null) return { var: assign[1], value: expr, kind: 'expr' };
     return null;
+  }
+  // R87 store action：`ui.setSkin('night')` → onSet 赋值（两端统一走 onSet）
+  const sa = t.match(/^([A-Za-z_$][\w$]*)\.([A-Za-z_$][\w$]*)\(([^)]*)\)$/);
+  if (sa && storeAliases.has(sa[1])) {
+    const r = resolveStoreAction(sa[1], sa[2], sa[3], warn);
+    if (r) return r;
   }
   const m = t.match(/^(\w+)\(([^)]*)\)$/);
   if (!m) return null;
@@ -853,6 +934,11 @@ export function vueToIr(source: string, opts: Vue2IrOptions = {}): Vue2IrResult 
       // R72：回调体内出现顶层 await → onMounted 视为 async（生成 async function，await 才合法）
       onMountedAsync = /(^|[^\w$.])await\s/.test(onMountedBody) || /onMounted\s*\(\s*async\b/.test(src);
       onMountedBody = rewriteStateRefs(onMountedBody, (stateInfo?.states ?? []).map((s) => s.name));
+    }
+    // R87：handler/onMounted 内的 store action 调用 → 状态赋值（iOS 走 JS stateStore，Android 走内联赋值）
+    if (storeAliases.size > 0) {
+      for (const h of handlers ?? []) h.body = foldStoreActionsInBody(h.body);
+      if (onMountedBody !== undefined) onMountedBody = foldStoreActionsInBody(onMountedBody);
     }
     // R74 续：先在 handler/onMounted 源码里改名，再生成 runtime（否则 JS 侧仍指向旧名）
     if (stateRenames.size > 0) {
@@ -1474,7 +1560,7 @@ function walkElement(
         // @click="handler" → 状态赋值（setter 内联）优先；否则保留 onClick（JS 运行时调用）
         // M3 规范化：无参调用 `inc()` → `inc`（Swift invoke 统一 evaluateScript("<名>()")）；带参保留原样
         if (event === 'click' && handler) {
-          const set = state && resolveSetCall(handler, state);
+          const set = state && resolveSetCall(handler, state, (m) => warnings.push(m));
           if (set) {
             Object.assign(props, { onSet: set });
           } else {

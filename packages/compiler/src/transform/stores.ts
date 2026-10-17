@@ -25,7 +25,8 @@ export interface StoreDef {
   state: StoreStateField[];
   /** getter：name + 可折叠的成员链（`(s) => s.dialog.visible` → stateField='dialog', path='visible'） */
   getters: { name: string; stateField?: string; path?: string }[];
-  actions: string[];
+  /** action：name + 形参表 + 函数体（用于折叠成原生赋值；无法折叠则忽略） */
+  actions: { name: string; params: string[]; body: string }[];
 }
 
 /** 找到 src 中从 start（含）开始的花括号配对结束位置；未闭合返回 -1 */
@@ -141,7 +142,26 @@ export function parseStoreSource(src: string): StoreDef[] {
     if (am) {
       const at = body.indexOf('{', am.index ?? 0);
       const endIdx = at === -1 ? -1 : matchBrace(body, at);
-      if (endIdx !== -1) def.actions = splitTopLevel(body.slice(at + 1, endIdx)).map((x) => x.key);
+      if (endIdx !== -1) {
+        // action 是方法简写（`setSkin(skin) { ... }`）而非 `key: value`，必须单独扫描
+        const block = body.slice(at + 1, endIdx);
+        const ARE = /(?:async\s+)?([A-Za-z_$][\w$]*)\s*\(([^)]*)\)\s*\{/g;
+        let m: RegExpExecArray | null;
+        while ((m = ARE.exec(block))) {
+          const braceAt = block.indexOf('{', m.index);
+          const bodyEnd = braceAt === -1 ? -1 : matchBrace(block, braceAt);
+          if (bodyEnd === -1) break;
+          def.actions.push({
+            name: m[1],
+            params: m[2]
+              .split(',')
+              .map((t) => t.trim().replace(/:.*$/, '').trim())
+              .filter(Boolean),
+            body: block.slice(braceAt + 1, bodyEnd).trim(),
+          });
+          ARE.lastIndex = bodyEnd + 1;
+        }
+      }
     }
   } else {
     // setup 写法：defineStore('key', () => { const a = ref(1); ... return { a } })
@@ -149,7 +169,13 @@ export function parseStoreSource(src: string): StoreDef[] {
       const lit = classifyLiteral(rm[2].trim());
       if (lit) def.state.push({ name: rm[1], ...lit });
     }
-    for (const fm of src.matchAll(/function\s+(\w+)\s*\(/g)) def.actions.push(fm[1]);
+    for (const fm of src.matchAll(/function\s+(\w+)\s*\(([^)]*)\)\s*\{([\s\S]*?)\n\}/g)) {
+      def.actions.push({
+        name: fm[1],
+        params: fm[2].split(',').map((t) => t.trim()).filter(Boolean),
+        body: fm[3].trim(),
+      });
+    }
   }
   defs.push(def);
   return defs;

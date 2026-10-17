@@ -608,4 +608,26 @@ const ui = useUiStore()</script>
     expect(ui).toContain('"obj":"ui_dialog","field":"visible"');
     expect(r.warnings.some((w) => w.includes('getter/action'))).toBe(true);
   });
+
+  it('R87 store action 折叠：@click 与 handler 体内的 action 调用变成状态赋值', () => {
+    const storeSrc = `export const useUiStore = defineStore('ui', {
+  state: (): UiState => ({ skin: 'warm', seq: 0 }),
+  actions: { setSkin(skin) { this.skin = skin }, bump() { this.seq++ }, reset() { this.skin = 'warm' } },
+})`;
+    const src = `<template><div class="page">
+      <button class="b" @click="ui.setSkin('night')">夜间</button>
+      <button class="b" @click="ui.bump()">加一</button>
+      <button class="b" @click="viaHandler">自检</button>
+    </div></template>
+<script setup>import { useUiStore } from '@/stores/ui'
+const ui = useUiStore()
+function viaHandler() { ui.reset() }</script>
+<style>.page { background: #0b1020; padding: 16px; } .b { font-size: 15px; color: #ffd98e; background: #16203c; }</style>`;
+    const r = vueToIr(src, { screenId: 'S', storeSources: { 'ui.ts': storeSrc } });
+    const btns = (r.screen.ui.children?.[0]?.children?.[0]?.children ?? []) as { props?: Record<string, unknown> }[];
+    expect(JSON.stringify(btns[0].props)).toContain('"var":"ui_skin","value":"night"');
+    expect(JSON.stringify(btns[1].props)).toContain('ui_seq + 1');
+    expect(r.runtime ?? '').toContain('stateStore.ui_skin = "warm"');
+    expect(r.warnings).toEqual([]);
+  });
 });
