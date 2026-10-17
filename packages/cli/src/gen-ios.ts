@@ -782,7 +782,11 @@ function runTabs(appDir: string, opts: { routerFile?: string } = {}): string {
       bindingMode: 'external',
     });
     for (const w of genWarnings) console.log(`[gen-ios] 生成提示（${tab.id}，tab 页）: ${w}`);
-    writeFileSync(join(srcDir, `${pageId}View.swift`), swift);
+    // R134：安全网——内部状态名绝不能被当成字符串字面量渲染
+    writeFileSync(
+      join(srcDir, `${pageId}View.swift`),
+      swift.replace(/Text\("(_vrn[EAC][0-9]+)"\)/g, 'Text($1)'),
+    );
     // R118：页面脚本 bundle（computed/store 别名/局部函数）必须排在 utils 之后、runtime 之前
     const pageBundle = bundlePageScript(tab.file, findProjectRoot(appDir));
     if (pageBundle) console.log(`[gen-ios] 页面脚本打包：${tab.id}（${pageBundle.names.length} 个绑定）`);
@@ -845,7 +849,7 @@ function runTabs(appDir: string, opts: { routerFile?: string } = {}): string {
       runtime: `Runtime.forPage("${pageId}Detail")`,
     });
     for (const w of genWarnings) console.log(`[gen-ios] 生成提示（${d.id}，push 页）: ${w}`);
-    writeFileSync(join(srcDir, viewFile), swift);
+    writeFileSync(join(srcDir, viewFile), swift.replace(/Text\("(_vrn[EAC][0-9]+)"\)/g, 'Text($1)'));
     writeFileSync(join(srcDir, `runtime_${pageId}Detail.js`), utilsBundle.code + '\n' + (r.runtime ?? ''));
     pageFiles.push(viewFile);
     pageRuntimes.push({ id: `${pageId}Detail`, src: r.runtime ?? '' });

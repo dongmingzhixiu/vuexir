@@ -944,7 +944,15 @@ function emitNodeInner(node: IrNode, ctx: Ctx): string {
                   // 布尔 state → String(describing:)（Text(Bool) 无构造匹配，typecheck 失败）
                   ? pad(`Text(String(describing: ${bindKey}))`)
                   : pad(`Text(${bindKey})`)
-            : pad(`Text("${swiftStringEscape(content)}")`);
+            : pad(
+                (() => {
+                  if (/^_vrn/.test(String(content).trim())) {
+                    ctx.warnings.push(`${ctx.path}: 文本内容「${content}」像是内部状态名 → 已置空（R134）`);
+                    return 'Text("")';
+                  }
+                  return `Text("${swiftStringEscape(content)}")`;
+                })(),
+              );
       line += `.font(${fontExpr(fs, props.fontWeight, 'normal')})`;
       // M2 :style 动态 → 运行时从 state 读取（fontSize 数值 / color hex 字符串）
       if (props.fontSizeDynamic !== undefined) {
