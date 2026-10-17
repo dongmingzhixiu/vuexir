@@ -627,11 +627,26 @@ function emitNodeInner(node: IrNode, ctx: Ctx): string {
   }
   // M5 position:absolute → 脱离文档流（父容器已转 ZStack；offset 实现 top/left 定位）
   if (props.position === 'absolute') {
-    const x = props.absLeft ?? 0;
-    const y = props.absTop ?? 0;
-    box.push(`.offset(x: ${x}, y: ${y})`);
-    if (props.absRight !== undefined || props.absBottom !== undefined) {
-      ctx.warnings.push(`${ctx.path}: absolute 的 right/bottom 定位暂不支持（仅 left/top），已忽略`);
+    const hasRB = props.absRight !== undefined || props.absBottom !== undefined;
+    if (hasRB) {
+      // R131：right/bottom 定位 → 用对齐 + 内边距表达（此前直接丢弃，导致元素重叠、内容被盖住）
+      const v = props.absBottom !== undefined ? 'bottom' : props.absTop !== undefined ? 'top' : 'center';
+      const h = props.absRight !== undefined ? 'trailing' : props.absLeft !== undefined ? 'leading' : 'center';
+      const align =
+        v === 'center' && h === 'center'
+          ? 'center'
+          : v === 'center'
+            ? h
+            : h === 'center'
+              ? v
+              : `${v}${h[0].toUpperCase()}${h.slice(1)}`;
+      box.push(`.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .${align})`);
+      if (props.absRight !== undefined) box.push(`.padding(.trailing, ${props.absRight})`);
+      if (props.absBottom !== undefined) box.push(`.padding(.bottom, ${props.absBottom})`);
+      if (props.absLeft !== undefined && h !== 'leading') box.push(`.padding(.leading, ${props.absLeft})`);
+      if (props.absTop !== undefined && v !== 'top') box.push(`.padding(.top, ${props.absTop})`);
+    } else {
+      box.push(`.offset(x: ${props.absLeft ?? 0}, y: ${props.absTop ?? 0})`);
     }
   }
   // M5 v-show → opacity 动画切换（保留占位；状态名引用页面/容器同名 @State/@Binding）
