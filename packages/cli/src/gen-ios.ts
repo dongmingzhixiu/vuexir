@@ -362,6 +362,25 @@ function tabNavBarModifiers(
 
 /** R40 组件表：输入 .vue 同目录 components/*.vue → { PascalCase 名: SFC 源码 }
  *  R-VFOBJ：并向上查找样例根 components/（共享组件目录，如 vuexir-demo/components/VirRow.vue） */
+/** R86 扫描工程内的 Pinia store 源码（src/stores/*.ts），供编译器做状态折叠 */
+function loadStoreSources(anchor: string): Record<string, string> {
+  const table: Record<string, string> = {};
+  let up = anchor;
+  for (let i = 0; i < 6 && up !== dirname(up); i++) {
+    for (const cand of [join(up, 'stores'), join(up, 'src', 'stores')]) {
+    if (existsSync(cand)) {
+      for (const f of readdirSync(cand)) {
+        if (!/\.(ts|js|mts)$/.test(f)) continue;
+        table[f] = readFileSync(join(cand, f), 'utf-8');
+      }
+      if (Object.keys(table).length > 0) return table;
+    }
+    }
+    up = dirname(up);
+  }
+  return table;
+}
+
 function loadComponents(input: string): Record<string, string> {
   const dirs = new Set<string>();
   const local = join(dirname(input), 'components');
@@ -420,6 +439,7 @@ function runOne(input: string): string | undefined {
           ? dirName
           : fileName;
       const r = vueToIr(readFileSync(input, 'utf-8'), {
+        storeSources: loadStoreSources(input),
         screenId: toIdentifier(idSource),
         title: idSource,
         // R41 组件表：同目录 components/*.vue（PascalCase 文件名 → SFC 源码）
@@ -712,6 +732,7 @@ function runTabs(appDir: string, opts: { routerFile?: string } = {}): string {
       screenId: pageId,
       title: tab.title,
       components: loadComponents(tab.file),
+      storeSources: loadStoreSources(tab.file),
     });
     if (r.warnings.length > 0) {
       console.log(`[gen-ios] 编译提示（${tab.id}，${r.warnings.length} 条）:`);
@@ -770,7 +791,12 @@ function runTabs(appDir: string, opts: { routerFile?: string } = {}): string {
     // screenId 同步带 Detail → struct 名 = <Id>DetailView，与文件/view 引用一致（防 Swift 重复声明）
     const viewFile = `${pageId}DetailView.swift`;
     const viewName = `${pageId}DetailView`;
-    const r = vueToIr(src, { screenId: `${pageId}Detail`, title: d.title, components: loadComponents(d.file) });
+    const r = vueToIr(src, {
+      screenId: `${pageId}Detail`,
+      title: d.title,
+      components: loadComponents(d.file),
+      storeSources: loadStoreSources(d.file),
+    });
     for (const w of r.warnings) console.log(`[gen-ios] 编译提示（${d.id}，push 页）: ${w}`);
     const v = validateIr(r.screen);
     if (!v.ok) {

@@ -37,6 +37,12 @@ function flattenStorePath(name: string): string {
   if (!def) return name;
   const segs = m[2].split('.');
   const field = segs[0];
+  // R86 续：getter 若可折叠成「从某个 state 字段出发的成员链」，直接拍成该字段的点路径
+  const getter = def.getters.find((g) => g.name === field);
+  if (getter && getter.stateField) {
+    const tail = [getter.path, ...segs.slice(1)].filter(Boolean).join('.');
+    return [`${m[1]}_${getter.stateField}`, tail].filter(Boolean).join('.');
+  }
   if (!def.state.some((f) => f.name === field)) return `\u0000store:${m[1]}.${m[2]}`;
   return [`${m[1]}_${field}`, ...segs.slice(1)].join('.');
 }
@@ -108,7 +114,11 @@ export function extractScreenState(script: string): ScreenStateInfo {
     // 规范化：单引号 → 双引号；裸键加引号（仅限简单字面量对象，复杂表达式会被 vrnField 忽略该层）
     const json = raw
       .replace(/'([^']*)'/g, (_a, inner: string) => `"${inner.replace(/"/g, '\\"')}"`)
-      .replace(/([{,]\s*)([A-Za-z_$][\w$]*)\s*:/g, (_a, pre: string, key: string) => `${pre}"${key}":`);
+      .replace(/([{,]\s*)([A-Za-z_$][\w$]*)\s*:/g, (_a, pre: string, key: string) => `${pre}"${key}":`)
+      .replace(/,(\s*[}\]])/g, '$1')
+      .replace(/\s*\n\s*/g, ' ')
+      .replace(/\s{2,}/g, ' ')
+      .trim();
     states.push({ name: m[1], init: json, obj: true });
   }
   // 箭头函数（有参）：const f = (p) => { x.value = p } / const f = p => { ... }
@@ -1030,9 +1040,9 @@ function walk(
       }
       if (name.startsWith('\u0000store:')) {
         warnings.push(
-          `插值 {{ ${name.slice(8)} }} 是 Pinia store 的 getter/action，R86 目前只折叠 state 字段 → 已生成占位文本`,
+          `插值 {{ ${name.slice(7)} }} 是 Pinia store 的 getter/action，R86 目前只折叠 state 字段 → 已生成占位文本`,
         );
-        return [{ type: 'text', props: { text: ' ' } }];
+        return [{ type: 'text', props: { text: '\u200B' } }];
       }
       // M2 模板内三元（D1 小范围）：cond ? 'a' : 'b' → Swift 三元字符串表达式（Text(expr)）
       const tri = parseTernaryExpr(name);
@@ -1561,9 +1571,9 @@ function walkElement(
           }
           if (name.startsWith('\u0000store:')) {
             warnings.push(
-              `插值 {{ ${name.slice(8)} }} 是 Pinia store 的 getter/action，R86 目前只折叠 state 字段 → 已生成占位文本`,
+              `插值 {{ ${name.slice(7)} }} 是 Pinia store 的 getter/action，R86 目前只折叠 state 字段 → 已生成占位文本`,
             );
-            parts.push({ text: ' ' });
+            parts.push({ text: '\u200B' });
             continue;
           }
           // M2：v-for 循环变量（item/index）优先于状态表
@@ -1631,6 +1641,9 @@ function walkElement(
       }
     } else if (parts.length > 1 || (parts.length === 1 && ('bind' in parts[0] || 'dynField' in parts[0] || 'fieldOf' in parts[0]))) {
       props.bindParts = parts;
+    } else if (parts.length === 1 && 'text' in parts[0] && !text.trim()) {
+      // 只有占位文本（如不可折叠的 store getter/action）：渲染空文本而不是报错
+      props.text = parts[0].text;
     } else {
       const t = text.trim();
       if (!t) {

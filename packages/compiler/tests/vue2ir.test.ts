@@ -593,4 +593,19 @@ const ui = useUiStore()</script>
     expect(ui).toContain('"obj":"ui_dialog","field":"title"');
     expect(ui).toContain('"bind":"ui_count"');
   });
+
+  it('R86 续 getter 折叠：可折叠 getter 拍成 state 字段点路径，不可折叠给 warning', () => {
+    const storeSrc = `export const useUiStore = defineStore('ui', {
+  state: (): UiState => ({ dialog: { visible: false, title: '提示' }, count: 3 }),
+  getters: { isOpen: (s) => s.dialog.visible, detail: (s) => s.dialog, bogus: (s) => s.count + 1 },
+})`;
+    const src = `<template><div class="page"><p class="t">{{ ui.isOpen }}</p><p class="t">{{ ui.bogus }}</p></div></template>
+<script setup>import { useUiStore } from '@/stores/ui'
+const ui = useUiStore()</script>
+<style>.page { background: #0f1832; } .t { font-size: 13px; color: #ffffff; }</style>`;
+    const r = vueToIr(src, { screenId: 'S', storeSources: { 'ui.ts': storeSrc } });
+    const ui = JSON.stringify(r.screen.ui);
+    expect(ui).toContain('"obj":"ui_dialog","field":"visible"');
+    expect(r.warnings.some((w) => w.includes('getter/action'))).toBe(true);
+  });
 });

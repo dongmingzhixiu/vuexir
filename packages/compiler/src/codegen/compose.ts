@@ -1182,6 +1182,25 @@ function emitNodeInner(node: IrNode, ctx: ComposeCtx, depth: number, loop?: { it
 
 /** R40 组件表：页面同目录 + 向上逐级查找 components/*.vue（对位 gen-ios loadComponents，支持样例根共享组件）
  *  优先级：页面本地 components/ 覆盖祖先目录同名组件（先收集祖先、最后收集本地） */
+/** R86 扫描工程内的 Pinia store 源码（src/stores/*.ts），供编译器做状态折叠 */
+function loadStoreSources(anchor: string): Record<string, string> {
+  const table: Record<string, string> = {};
+  let up = anchor;
+  for (let i = 0; i < 6 && up !== dirname(up); i++) {
+    for (const cand of [join(up, 'stores'), join(up, 'src', 'stores')]) {
+    if (existsSync(cand)) {
+      for (const f of readdirSync(cand)) {
+        if (!/\.(ts|js|mts)$/.test(f)) continue;
+        table[f] = readFileSync(join(cand, f), 'utf-8');
+      }
+      if (Object.keys(table).length > 0) return table;
+    }
+    }
+    up = dirname(up);
+  }
+  return table;
+}
+
 function loadComponents(pageFile: string): Record<string, string> {
   const dirs: string[] = [];
   let up = dirname(pageFile);
@@ -1486,7 +1505,12 @@ function runTabs(appDir: string, opts: RunTabsOptions = {}): string {
     }
     const src = readFileSync(tab.file, 'utf-8');
     const pageId = toPascal(tab.id);
-    const r = vueToIr(src, { screenId: tab.id, title: tab.title, components: loadComponents(tab.file) });
+    const r = vueToIr(src, {
+      screenId: tab.id,
+      title: tab.title,
+      components: loadComponents(tab.file),
+      storeSources: loadStoreSources(tab.file),
+    });
     if (r.warnings.length > 0) {
       console.log(`[gen-android] 编译提示（${tab.id}，${r.warnings.length} 条）:`);
       for (const w of r.warnings) console.log(`  - ${w}`);
@@ -1517,7 +1541,12 @@ function runTabs(appDir: string, opts: RunTabsOptions = {}): string {
   for (const d of details) {
     const src = readFileSync(d.file, 'utf-8');
     const pageId = toPascal(d.id);
-    const r = vueToIr(src, { screenId: d.id, title: d.title, components: loadComponents(d.file) });
+    const r = vueToIr(src, {
+      screenId: d.id,
+      title: d.title,
+      components: loadComponents(d.file),
+      storeSources: loadStoreSources(d.file),
+    });
     if (r.warnings.length > 0) {
       console.log(`[gen-android] 编译提示（${d.id}，${r.warnings.length} 条）:`);
       for (const w of r.warnings) console.log(`  - ${w}`);

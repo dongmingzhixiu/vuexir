@@ -23,7 +23,8 @@ export interface StoreDef {
   /** `useXxxStore` 标识符 */
   fnName: string;
   state: StoreStateField[];
-  getters: string[];
+  /** getter：name + 可折叠的成员链（`(s) => s.dialog.visible` → stateField='dialog', path='visible'） */
+  getters: { name: string; stateField?: string; path?: string }[];
   actions: string[];
 }
 
@@ -43,9 +44,17 @@ function matchBrace(src: string, start: number): number {
 
 /** 把对象字面量规范化为 JSON 文本（单引号 → 双引号、裸键补引号） */
 export function normalizeJsonish(raw: string): string {
-  return raw
-    .replace(/'([^']*)'/g, (_a, inner: string) => `"${String(inner).replace(/"/g, '\\"')}"`)
-    .replace(/([{,]\s*)([A-Za-z_$][\w$]*)\s*:/g, (_a, pre: string, key: string) => `${pre}"${key}":`);
+  return (
+    raw
+      .replace(/'([^']*)'/g, (_a, inner: string) => `"${String(inner).replace(/"/g, '\\"')}"`)
+      .replace(/([{,]\s*)([A-Za-z_$][\w$]*)\s*:/g, (_a, pre: string, key: string) => `${pre}"${key}":`)
+      // 尾逗号（[...,] / {...,}）会让 JSONSerialization 解析失败
+      .replace(/,(\s*[}\]])/g, '$1')
+      // 单行化：Swift 的 raw string #"..."# 不允许多行内容
+      .replace(/\s*\n\s*/g, ' ')
+      .replace(/\s{2,}/g, ' ')
+      .trim()
+  );
 }
 
 /** 分析一层对象的顶层键值（粗粒度：按顶层逗号切分，值保留原文） */
@@ -117,7 +126,16 @@ export function parseStoreSource(src: string): StoreDef[] {
     if (gm) {
       const at = body.indexOf('{', gm.index ?? 0);
       const endIdx = at === -1 ? -1 : matchBrace(body, at);
-      if (endIdx !== -1) def.getters = splitTopLevel(body.slice(at + 1, endIdx)).map((x) => x.key);
+      if (endIdx !== -1) {
+        def.getters = splitTopLevel(body.slice(at + 1, endIdx)).map((x) => {
+          // getter 体：`(s) => s.dialog.visible` / `s => s.count + 1`
+          const m = x.value.match(/^\s*\(?\s*(\w+)\s*\)?\s*=>\s*([\w$.\[\]']+)\s*$/);
+          if (!m) return { name: x.key };
+          const segs = m[2].split('.');
+          if (segs.length < 2 || segs[0] !== m[1]) return { name: x.key };
+          return { name: x.key, stateField: segs[1], path: segs.slice(2).join('.') || undefined };
+        });
+      }
     }
     const am = body.match(/actions\s*:\s*\{/);
     if (am) {
