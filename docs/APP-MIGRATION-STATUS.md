@@ -64,3 +64,20 @@ meta: { tab: true, title: '首页' },
 
 ### 当前生成链路位置
 `gen ios` 已能解析路由（1 tab = HomeView）→ 编译到 HomeView 时依次撞到 `<Transition>`(已修) → 空 div(已修) → `{{ dialog.title }}`(G7 待立项)。**先把 G7–G10 立项实现，再回到整页编译**。
+
+## 六、本轮进展（R78 对象字段插值）
+
+**已实现（R78）**
+- IR：`text.fieldOf = { obj, field }`（并入 `bindParts` 段类型），schema 校验
+- 转换层：`{{ obj.field }}`（单插值与混合段两处）→ `fieldOf`；obj 不是页面状态（Pinia store）→ **警告 + 占位文本**（不再中断编译）
+- 双端生成：`vrnField(obj, "field")`；运行时辅助已加 —— iOS `Theme.swift` 的 `vrnField(_:_:)`（JSONSerialization）、Android `Runtime.kt` 的 `vrnField(json, key)`（org.json）
+
+**本轮推进到的编译位置**
+`gen ios`：路由解析 OK（1 tab）→ `<Transition>`(R76 已修) → 空 div(R77 已修) → `{{ dialog.title }}`(R78 已修) → **`<h3 v-if="dialog.title">{{ dialog.title }}</h3>`（组件 AppDialog.vue）** 处仍失败。
+
+**新增缺口（下一轮）**
+| # | 缺口 | 说明 | 计划 |
+|---|---|---|---|
+| G12 | **条件里的对象字段** `v-if="dialog.title"` | 条件表达式不支持 `obj.field` | `swiftCondExpr`/`kotlinCondExpr` 增加映射：`obj.field` → `!vrnField(obj,"field").isEmpty` / `.isNotEmpty()` |
+| G13 | **组件内的对象字段插值** | `AppDialog.vue` 走组件编译路径（propRefs 模式），与页面路径不同 | 在 `componentUseNode`/组件 walk 中同样识别 `fieldOf`（组件的 obj 需来自 props 或组件内 ref） |
+| G14 | 组件内 `v-if` 条件降级 | 组件模板条件渲染同样受限 | 随 G12/G13 一起处理 |

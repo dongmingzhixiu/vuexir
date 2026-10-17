@@ -158,6 +158,16 @@ const RUNTIME_KT = (bundleId: string) => `package ${bundleId}
 
 // Vuexir Android 运行时桥（对位 iOS RUNTIME_SWIFT）
 /** R73 持久化桥：对位 iOS runtime 的 localStorage（UserDefaults）—— SharedPreferences 同步读写 */
+/** R78 对象字段取值：状态里存 JSON 字符串时按 key 取值 */
+fun vrnField(json: String, key: String): String {
+    return try {
+        val o = org.json.JSONObject(json)
+        o.optString(key, "")
+    } catch (e: Throwable) {
+        ""
+    }
+}
+
 object Store {
     private var prefs: android.content.SharedPreferences? = null
     fun init(ctx: android.content.Context) {
@@ -858,10 +868,13 @@ function emitNodeInner(node: IrNode, ctx: ComposeCtx, depth: number, loop?: { it
           .map((seg): string => {
             if ('text' in seg) return String(seg.text).replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/\$/g, '${\'$\'}').replace(/\n/g, '\\n');
             if ('bind' in seg) return '${' + loopField(seg.bind, loop) + '}';
+            if ('fieldOf' in seg) return '${vrnField(' + seg.fieldOf.obj + ', "' + seg.fieldOf.field + '")}';
             return '${' + loopField(seg.dynField.var, loop) + '["' + seg.dynField.field + '"] ?: ""}';
           })
           .join('');
         textExpr = '"' + segs + '"';
+      } else if (p.fieldOf) {
+        textExpr = '"${vrnField(' + p.fieldOf.obj + ', "' + p.fieldOf.field + '")}"';
       } else if (p.dynField) {
         textExpr = '"${' + loopField(p.dynField.var, loop) + '["' + p.dynField.field + '"] ?: ""}"';
       } else if (p.bindExpr !== undefined) {

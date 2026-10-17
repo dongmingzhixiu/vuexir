@@ -877,6 +877,18 @@ function walk(
           `插值 {{ ${name} }}：未在 <script setup> 中声明为 ref 状态（M1 白名单：仅支持已声明状态）`,
         );
       }
+      // R78 对象字段插值 {{ obj.field }}：obj 是页面状态 → 运行时 JSON 取值；否则明确警告 + 空文本降级
+      {
+        const fld = name.match(/^([A-Za-z_$][\w$]*)\.([A-Za-z_$][\w$]*)$/);
+        if (fld) {
+          const isState = (state?.states ?? []).some((st) => st.name === fld[1]);
+          if (isState) return [{ type: 'text', props: { fieldOf: { obj: fld[1], field: fld[2] } } }];
+          warnings.push(
+            `插值 {{ ${name} }} 的对象「${fld[1]}」不是页面状态（如 Pinia store）→ 已生成占位文本；请把该字段提升为 ref（R78）`,
+          );
+          return [{ type: 'text', props: { text: ' ' } }];
+        }
+      }
       throw new VueCompileError(
         `插值表达式 {{ ${name} }} 暂不支持（M1 仅支持纯状态名；三元/比较表达式 M2 白名单）`,
       );
@@ -1330,7 +1342,7 @@ function walkElement(
     let refOnly: string | undefined;
     let exprOnly: string | undefined;
     // M4b：混合文本（静态 + 插值/动态字段）→ bindParts 分段拼接（Text("\(bind)静态\(dyn)"）
-    const parts: ({ text: string } | { bind: string } | { dynField: { var: string; field: string } })[] = [];
+    const parts: ({ text: string } | { bind: string } | { dynField: { var: string; field: string } } | { fieldOf: { obj: string; field: string } })[] = [];
     for (const child of node.children) {
       if (child.type === NodeTypes.TEXT) {
         text += child.content;
@@ -1343,7 +1355,7 @@ function walkElement(
         const loopVar = loopScope.find((l) => l.itemKey === base || l.indexKey === base);
         const dyn =
           loopVar && dot.length === 2 && dot[0] === loopVar.itemKey && /^\w+$/.test(dot[1]);
-        if (!text && !parts.some((p) => 'bind' in p || 'dynField' in p)) {
+        if (!text && !parts.some((p) => 'bind' in p || 'dynField' in p || 'fieldOf' in p)) {
           // M2 模板内三元（D1 小范围）：cond ? 'a' : 'b' → Swift 三元字符串表达式（Text(expr)）
           const tri = parseTernaryExpr(name);
           if (tri) {
@@ -1367,6 +1379,20 @@ function walkElement(
                 `插值 {{ ${name} }}：未在 <script setup> 中声明为 ref 状态（M1 白名单：仅支持已声明状态）`,
               );
             }
+            continue;
+          }
+          // R78 对象字段插值 {{ obj.field }}（单插值）：状态对象 → fieldOf；非状态对象 → 警告 + 空文本
+          const fld2 = name.match(/^([A-Za-z_$][\w$]*)\.([A-Za-z_$][\w$]*)$/);
+          if (fld2) {
+            const isState2 = (state?.states ?? []).some((st) => st.name === fld2[1]);
+            if (isState2) {
+              parts.push({ fieldOf: { obj: fld2[1], field: fld2[2] } });
+              continue;
+            }
+            warnings.push(
+              `插值 {{ ${name} }} 的对象「${fld2[1]}」不是页面状态（如 Pinia store）→ 已生成占位文本；请把该字段提升为 ref（R78）`,
+            );
+            parts.push({ text: ' ' });
             continue;
           }
           throw new VueCompileError(

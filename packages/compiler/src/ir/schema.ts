@@ -68,8 +68,10 @@ export interface IrProps {
   bindExpr?: string;
   /** M4b 动态列表项属性：{{ item.field }} → Swift [String: Any] 字段取值 */
   dynField?: { var: string; field: string };
+  /** R78 对象字段插值：{{ obj.field }}（obj 为 JSON 字符串状态；非状态对象编译期警告） */
+  fieldOf?: { obj: string; field: string };
   /** M4b 混合文本：静态段 + 插值/动态字段段 → Text("\(bind)静态\(dyn)") */
-  bindParts?: ({ text: string } | { bind: string } | { dynField: { var: string; field: string } })[];
+  bindParts?: ({ text: string } | { bind: string } | { dynField: { var: string; field: string } } | { fieldOf: { obj: string; field: string } })[];
   /** group 专属 */
   flexDirection?: FlexDirection;
   justifyContent?: Justify;
@@ -355,6 +357,8 @@ const PROPS_VALIDATORS: Record<string, (v: unknown) => boolean> = {
       (k) => (v as Record<string, unknown>)[k] === undefined || typeof (v as Record<string, unknown>)[k] === 'number',
     ),
   show: (v) => typeof v === 'string',
+  fieldOf: (v) =>
+    typeof v === 'object' && v !== null && typeof (v as { obj: string }).obj === 'string' && typeof (v as { field: string }).field === 'string',
   opacity: (v) => typeof v === 'number' && v >= 0 && v <= 1,
   placeholder: (v) => typeof v === 'string',
 };
@@ -363,7 +367,7 @@ const PROPS_VALIDATORS: Record<string, (v: unknown) => boolean> = {
 const NODE_ALLOWED_PROPS: Record<NodeType, string[]> = {
   root: ['width', 'height', 'background'],
   group: ['width', 'height', 'padding', 'gap', 'flex', 'flexDirection', 'justifyContent', 'alignItems', 'background', 'radius', 'borderWidth', 'borderColor', 'marginTopAuto', 'marginTop', 'marginLeftAuto', 'marginBottom', 'marginRight', 'marginLeft', 'borderSides', 'clip', 'onClick', 'onSet', 'position', 'absTop', 'absLeft', 'absRight', 'absBottom', 'transform', 'show', 'opacity'],
-  text: ['width', 'text', 'ref', 'bind', 'bindExpr', 'dynField', 'bindParts', 'fontSize', 'fontWeight', 'textAlign', 'lineHeight', 'color', 'padding', 'colorActive', 'marginLeftAuto', 'marginTop', 'colorDynamic', 'fontSizeDynamic', 'position', 'absTop', 'absLeft', 'absRight', 'absBottom', 'transform', 'show', 'flex', 'opacity', 'onClick', 'onSet'],
+  text: ['width', 'text', 'ref', 'bind', 'bindExpr', 'dynField', 'bindParts', 'fontSize', 'fontWeight', 'textAlign', 'lineHeight', 'color', 'padding', 'colorActive', 'marginLeftAuto', 'marginTop', 'colorDynamic', 'fontSizeDynamic', 'position', 'absTop', 'absLeft', 'absRight', 'absBottom', 'transform', 'show', 'flex', 'opacity', 'onClick', 'onSet', 'fieldOf'],
   image: ['width', 'height', 'src', 'objectFit', 'radius', 'borderSides', 'borderWidth', 'borderColor', 'clip', 'flex', 'marginTop', 'marginBottom', 'marginRight', 'marginLeft', 'position', 'absTop', 'absLeft', 'absRight', 'absBottom', 'transform', 'show', 'opacity'],
   button: ['width', 'height', 'label', 'background', 'radius', 'borderWidth', 'borderColor', 'fontSize', 'fontWeight', 'color', 'flex', 'padding', 'marginTopAuto', 'marginTop', 'marginBottom', 'marginRight', 'marginLeft', 'borderSides', 'clip', 'onClick', 'onSet', 'colorDynamic', 'fontSizeDynamic', 'position', 'absTop', 'absLeft', 'absRight', 'absBottom', 'transform', 'show', 'pressBg', 'opacity'],
   input: ['width', 'height', 'value', 'placeholder', 'fontSize', 'color', 'background', 'padding', 'radius', 'borderWidth', 'borderColor', 'borderSides', 'clip', 'flex', 'marginTop', 'marginTopAuto', 'marginBottom', 'marginRight', 'marginLeft', 'onSet', 'colorDynamic', 'fontSizeDynamic', 'position', 'absTop', 'absLeft', 'absRight', 'absBottom', 'transform', 'show'],
