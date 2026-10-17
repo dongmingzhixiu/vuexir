@@ -20,11 +20,17 @@ class Table {
   _write(rows) {
     try { localStorage.setItem(__vrnDbKey(this.dbName, this.name), JSON.stringify(rows)); } catch (e) {}
   }
-  async toArray() { return this._read(); }
+  async toArray() {
+    var rows = this._read();
+    try { (globalThis.__vrnErrs = globalThis.__vrnErrs || []).push("toArray:" + this.name + "=" + rows.length); } catch (e) {}
+    return rows;
+  }
   async count() { return this._read().length; }
   async get(key) {
     var keyName = this.keyPath || "id";
-    return this._read().find(function (r) { return r && r[keyName] === key; });
+    var hit = this._read().find(function (r) { return r && r[keyName] === key; });
+    try { (globalThis.__vrnErrs = globalThis.__vrnErrs || []).push("get:" + this.name + "." + key + "=" + (hit ? "hit" : "miss")); } catch (e) {}
+    return hit;
   }
   async put(row) {
     var keyName = this.keyPath || "id";
@@ -92,16 +98,18 @@ export function shallowRef(v) { return ref(v); }
 export function reactive(obj) { return obj; }
 export function readonly(obj) { return obj; }
 export function computed(fn) {
-  var cache;
-  var dirty = true;
+  // R120：不做缓存——原生端没有依赖追踪，store.init() 是异步的，
+  // 首次求值（数据未到）会被永久缓存成空值。每次读都重算，配合 tick 同步即可。
   return {
     __vrnComputed: true,
     get value() {
-      if (dirty) { cache = fn(); dirty = false; }
-      return cache;
+      try {
+        return fn();
+      } catch (e) {
+        return undefined;
+      }
     },
-    set value(_v) { dirty = true; },
-    __invalidate: function () { dirty = true; },
+    set value(_v) {},
   };
 }
 export function onMounted(fn) { __vrnMounted.push(fn); }

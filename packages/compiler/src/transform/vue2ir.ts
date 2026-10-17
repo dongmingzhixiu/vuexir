@@ -529,7 +529,6 @@ function __vrnSyncPage() {
     var names = Object.getOwnPropertyNames(globalThis).filter(function (n) {
       return /^use[A-Za-z0-9_$]*Store$/.test(n) && typeof globalThis[n] === "function";
     });
-    try { if (typeof bridge !== "undefined" && bridge && typeof bridge.toast === "function") bridge.toast("store:" + names.length); } catch (e) {}
     names.forEach(function (n) {
       try {
         var st = globalThis[n]();
