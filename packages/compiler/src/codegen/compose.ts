@@ -162,6 +162,8 @@ const RUNTIME_KT = (bundleId: string) => `package ${bundleId}
 /** R73 持久化桥：对位 iOS runtime 的 localStorage（UserDefaults）—— SharedPreferences 同步读写 */
 /** R78 对象字段取值：状态里存 JSON 字符串时按 key 取值 */
 // R85 点路径取值：path 支持 "a.b.c"，末段可为 length/size（数组/对象/字符串长度）
+fun vrnTruthy(v: String): Boolean = v.isNotEmpty() && v != "false" && v != "0" && v != "null" && v != "undefined"
+
 fun vrnField(json: String, path: String, fallback: String = ""): String {
     val raw = vrnFieldRaw(json, path)
     return if (raw.isEmpty()) fallback else raw
@@ -836,6 +838,9 @@ function asyncLineKotlin(line: string, ctx: ComposeCtx): string | null {
     return arg === null ? null : `VrnBridge.${bm[1]}(${arg})`;
   }
   // G15 router 语句：router.push('x') / router.back() → Runtime.push / Runtime.back
+  // router.push({ name: 'x' }) → Runtime.push("x")（对象参数取 name/path）
+  const rpObj = line.match(/^router\.push\(\s*\{\s*(?:name|path)\s*:\s*'([^']+)'[^}]*\}\s*\);?$/);
+  if (rpObj) return `Runtime.push("${rpObj[1]}")`;
   const rp = line.match(/^router\.push\((.+)\);?$/);
   if (rp) {
     const a = jsExprToKotlin(rp[1].trim());

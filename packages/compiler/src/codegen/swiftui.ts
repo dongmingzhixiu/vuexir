@@ -127,6 +127,13 @@ export const VRN_HELPERS_SWIFT = `import Foundation
 // vuexir 运行时辅助（R78 对象字段取值）
 /// R78 对象字段取值：状态里存 JSON 字符串时按 key 取值（非 JSON → 返回空串）
 /// R85 点路径取值：key 支持 "a.b.c" 与末段 ".length"（数组/字典/字符串长度）
+/// R110 判真：JS 里的 truthiness 近似（空串/"false"/"0"/"null" 为假）
+func vrnTruthy(_ v: String) -> Bool {
+    if v.isEmpty { return false }
+    if v == "false" || v == "0" || v == "null" || v == "undefined" { return false }
+    return true
+}
+
 func vrnField(_ json: String, _ path: String, _ fallback: String = "") -> String {
     let raw = vrnFieldRaw(json, path)
     return raw.isEmpty ? fallback : raw
@@ -526,7 +533,18 @@ function swiftCondExpr(expr: string): string {
   const f = expr.match(/^__vrnField__:(\w+):(\w+)$/);
   if (f) return `!vrnField(${f[1]}, "${f[2]}").isEmpty`;
   let s = expr.replace(/!==/g, '!=').replace(/===/g, '==');
-  s = s.replace(/'(\\[^]|[^'\\])*'/g, (m) => '"' + m.slice(1, -1).replace(/"/g, '\\"') + '"');
+  s = s.replace(/'(\[^]|[^'\\])*'/g, (m) => '"' + m.slice(1, -1).replace(/"/g, '\\"') + '"');
+  // R110：`.length` → Swift `.count`
+  s = s.replace(/\.length\b/g, '.count');
+  // R110：非布尔条件（字符串/数量）→ 真值比较
+  if (/^[A-Za-z_$][\w$]*\.count$/.test(s)) return `${s} > 0`;
+  // R110：取反的长度条件 → == 0
+  const neg = s.match(/^!([A-Za-z_$][\w$]*)\.count$/);
+  if (neg) return `${neg[1]}.count == 0`;
+  // R110：数值状态直接当条件（Swift 不接受 Int 当 Bool）
+  if (/^[A-Za-z_$][\w$]*$/.test(s)) return `vrnTruthy(String(${s}))`;
+  // R110：裸标识符条件（状态可能是字符串/对象/布尔）→ 统一走判真
+  if (/^[A-Za-z_$][\w$]*$/.test(s) && !['true', 'false'].includes(s)) return `vrnTruthy(String(${s}))`;
   return s;
 }
 

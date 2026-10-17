@@ -175,7 +175,7 @@ export function extractScreenState(script: string): ScreenStateInfo {
   }
   // R85 对象态：const board = ref({ month: { label: '10 月' }, tags: '生日' })
   // init 存规范化 JSON 字符串（双端一致：Swift/Compose 交给 vrnField 点路径解析，JS 侧解析为对象）
-  for (const m of script.matchAll(/const\s+(\w+)\s*=\s*ref(?:<[^>]*>)?\(\s*\{/g)) {
+  for (const m of script.matchAll(/const\s+(\w+)\s*=\s*(?:ref|reactive)(?:<[^>]*>)?\(\s*\{/g)) {
     const start = (m.index ?? 0) + m[0].length - 1;
     let depth = 0;
     let end = -1;
