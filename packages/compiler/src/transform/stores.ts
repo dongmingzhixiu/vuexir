@@ -176,7 +176,7 @@ export function parseStoreSource(src: string): StoreDef[] {
           found.push({ name: x.key, value: x.value });
         }
         void cursor;
-        def.getters = found.map((x) => getterShape(x.name, x.value));
+        def.getters = found.map((x) => getterShape(x.name, x.value, def.state));
       }
     }
     const am = body.match(/actions\s*:\s*\{/);
@@ -296,7 +296,11 @@ export function parseSharedConstArrays(src: string): Record<string, string> {
  *  其余（遍历/过滤/排序/调用）→ 记录底层 state 字段供降级读取（语义丢失，调用方必须告警）。
  * state 写法有三种：`(state) => state.list` 形参式、`this.list` 方法体式、`state.list`。
  */
-function getterShape(name: string, value: string): StoreDef['getters'][number] {
+function getterShape(
+  name: string,
+  value: string,
+  state: StoreStateField[] = [],
+): StoreDef['getters'][number] {
   const v = value.trim();
   // 纯成员链
   const m = v.match(/^\s*\(?\s*(\w+)\s*\)?\s*=>\s*([\w$.\[\]']+)\s*$/);
@@ -310,5 +314,13 @@ function getterShape(name: string, value: string): StoreDef['getters'][number] {
   const refs = [...v.matchAll(/\b(?:this|state|s)\.([A-Za-z_$][\w$]*)\b/g)].map((r) => r[1]);
   const uniq = [...new Set(refs)];
   if (uniq.length === 1) return { name, refField: uniq[0] };
-  return { name, ...(uniq.length > 1 ? { multi: true } : {}) };
+  if (uniq.length > 1) {
+    // 多依赖时优先挑「数组/列表」字段：列表类 getter（upcoming/soon/…）的渲染主体就是它
+    const listField = uniq.find((f) => state.some((st) => st.name === f && st.list));
+    if (listField) return { name, refField: listField };
+    const objField = uniq.find((f) => state.some((st) => st.name === f && st.obj));
+    if (objField) return { name, refField: objField };
+    return { name, multi: true };
+  }
+  return { name };
 }

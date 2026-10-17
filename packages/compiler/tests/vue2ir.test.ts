@@ -723,4 +723,5 @@ const nick = ref('')</script>
     expect(validateIr(r.screen).ok).toBe(true);
     // 产物级验证放在 codegen.swiftui.test.ts（本文件只做转换层断言）
   });
+
 });
