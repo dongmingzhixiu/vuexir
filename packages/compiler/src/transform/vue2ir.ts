@@ -714,6 +714,8 @@ export function vueToIr(source: string, opts: Vue2IrOptions = {}): Vue2IrResult 
   let navBarConfig: IrScreen['navBar'] | null = null;
   let onMountedBody: string | undefined;
   let onMountedAsync = false;
+  /** R74 保留名状态的重命名映射（旧名 → 新名） */
+  const stateRenames = new Map<string, string>();
   let stateInfo: ScreenStateInfo | undefined;
   const script = descriptor.scriptSetup ?? descriptor.script;
   if (script && script.content.trim()) {
@@ -733,14 +735,14 @@ export function vueToIr(source: string, opts: Vue2IrOptions = {}): Vue2IrResult 
         warnings.push(`handler「${h.name}」函数体疑似含 TS 类型标注（如 const x: number = 1），runtime.js 将解析失败——请移除类型标注（R13 仅支持 JS 子集）`);
       }
     }
-    // R74：状态名撞原生保留成员（SwiftUI `body`、Kotlin 关键字等）会导致生成代码编译失败 → 必须提前警告
+    // R74：状态名撞原生保留成员（SwiftUI `body`、Kotlin 关键字）→ 自动改名 + 警告（不再只警告导致后续编译失败）
     {
       const RESERVED = ['body', 'self', 'init', 'class', 'object', 'fun', 'val', 'var', 'when', 'is', 'in'];
       for (const st of stateInfo?.states ?? []) {
         if (RESERVED.includes(st.name)) {
-          warnings.push(
-            `状态名「${st.name}」与原生保留成员冲突（SwiftUI body / Kotlin 关键字）——请改名（如 ${st.name}Text / ${st.name}Value），否则生成的 iOS/Android 代码无法编译`,
-          );
+          const next = `${st.name}Text`;
+          stateRenames.set(st.name, next);
+          warnings.push(`状态名「${st.name}」与原生保留成员冲突 → 将自动改名「${next}」（R74）`);
         }
       }
     }
@@ -751,6 +753,19 @@ export function vueToIr(source: string, opts: Vue2IrOptions = {}): Vue2IrResult 
       // R72：回调体内出现顶层 await → onMounted 视为 async（生成 async function，await 才合法）
       onMountedAsync = /(^|[^\w$.])await\s/.test(onMountedBody) || /onMounted\s*\(\s*async\b/.test(src);
       onMountedBody = rewriteStateRefs(onMountedBody, (stateInfo?.states ?? []).map((s) => s.name));
+    }
+    // R74 续：先在 handler/onMounted 源码里改名，再生成 runtime（否则 JS 侧仍指向旧名）
+    if (stateRenames.size > 0) {
+      const renameSrc = (src: string): string => {
+        let out = src;
+        for (const [from, to] of stateRenames) {
+          out = out.replace(new RegExp(`\\bstateStore\\.${from}\\b`, 'g'), `stateStore.${to}`);
+          out = out.replace(new RegExp(`\\b${from}\\.value\\b`, 'g'), `${to}.value`);
+        }
+        return out;
+      };
+      for (const h of handlers ?? []) h.body = renameSrc(h.body);
+      if (onMountedBody !== undefined) onMountedBody = renameSrc(onMountedBody);
     }
     if (handlers.length > 0 || onMountedBody !== undefined) {
       runtime = generateRuntimeSource(stateInfo?.states ?? [], handlers, onMountedBody, onMountedAsync);
@@ -767,6 +782,19 @@ export function vueToIr(source: string, opts: Vue2IrOptions = {}): Vue2IrResult 
     return { name: c.name, ui: tree.ui };
   });
 
+  // R74 续：把重命名应用到 handler/onMounted 源码与 IR 引用（否则绑定仍指向旧名 → 编译失败）
+  if (stateRenames.size > 0) {
+    const renameSrc = (src: string): string => {
+      let out = src;
+      for (const [from, to] of stateRenames) {
+        out = out.replace(new RegExp(`\\bstateStore\\.${from}\\b`, 'g'), `stateStore.${to}`);
+        out = out.replace(new RegExp(`\\b${from}\\.value\\b`, 'g'), `${to}.value`);
+      }
+      return out;
+    };
+    for (const h of handlers ?? []) h.body = renameSrc(h.body);
+    if (onMountedBody !== undefined) onMountedBody = renameSrc(onMountedBody);
+  }
   const children = ast.children.flatMap((c) => walk(c, classProps, comboRules, scopedRules, pseudoRules, warnings, stateInfo, compTable));
   let pageRootBg: string | undefined;
 
@@ -806,6 +834,52 @@ export function vueToIr(source: string, opts: Vue2IrOptions = {}): Vue2IrResult 
     for (const c of n.children ?? []) checkClickHandlers(c);
   };
   checkClickHandlers(ui);
+
+  // R74 续：IR 树里的状态引用改名（bind/show/onSet/bindParts/fieldOf/condition/动态样式/输入值/列表态）
+  if (stateRenames.size > 0) {
+    // 状态表本身改名（放在 walk 之后，保证 {{ body }} 在解析时仍能命中原名）
+    for (const st of stateInfo?.states ?? []) {
+      const to = stateRenames.get(st.name);
+      if (to !== undefined) st.name = to;
+    }
+    const rn = (v?: string): string | undefined => (v === undefined ? undefined : stateRenames.get(v) ?? v);
+    const rnCond = (c?: string): string | undefined => {
+      if (c === undefined) return undefined;
+      let out = c;
+      for (const [from, to] of stateRenames) out = out.replace(new RegExp(`\\b${from}\\b`, 'g'), to);
+      return out;
+    };
+    const walkRen = (n: IrNode): void => {
+      const p = n.props as Record<string, unknown> | undefined;
+      if (p) {
+        for (const k of ['bind', 'show', 'value', 'colorDynamic', 'fontSizeDynamic']) {
+          if (typeof p[k] === 'string') p[k] = rn(p[k] as string);
+        }
+        if (p.onSet && typeof p.onSet === 'object') {
+          const os = p.onSet as { var: string; value: unknown; kind?: string };
+          os.var = rn(os.var) as string;
+        }
+        if (p.fieldOf && typeof p.fieldOf === 'object') {
+          const f = p.fieldOf as { obj: string; field: string };
+          f.obj = rn(f.obj) as string;
+        }
+        if (Array.isArray(p.bindParts)) {
+          for (const seg of p.bindParts as Record<string, unknown>[]) {
+            if (typeof seg.bind === 'string') seg.bind = rn(seg.bind as string);
+            if (seg.fieldOf && typeof seg.fieldOf === 'object') {
+              const f = seg.fieldOf as { obj: string; field: string };
+              f.obj = rn(f.obj) as string;
+            }
+          }
+        }
+        if (n.vfor && n.vfor.listState) n.vfor.listState = rn(n.vfor.listState);
+      }
+      n.condition = rnCond(n.condition);
+      if (n.active) n.active.when = rnCond(n.active.when) as string;
+      for (const c of n.children ?? []) walkRen(c);
+    };
+    walkRen(ui);
+  }
 
   // 5) <script setup> 逻辑源码 → 运行时 JS（R12：事件逻辑由原生 JS 引擎执行）
   //    仅支持 JS 子集（无 TS 类型标注、无 import）；超出即编译期警告（后续阶段扩展）

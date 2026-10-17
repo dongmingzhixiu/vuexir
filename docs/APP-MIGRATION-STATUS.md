@@ -203,3 +203,17 @@ Home / Detail / AllList / Add / Calendar / **Discover**（发现列表 → 跳�
 | 浏览器 | 7/7 页面模块 200，vite 零错误 |
 | Android | `gradle assembleDebug` **BUILD SUCCESSFUL**（1 tab + 6 detail） |
 | iOS | `xcodebuild` **BUILD SUCCEEDED**（`ReadDetailView.swift` 改名后通过） |
+
+## 十三、Round 9（R74 自动改名）
+
+**问题**：`const body = ref(...)` 与 SwiftUI `var body` 冲突 → R74 只警告，生成照常 → iOS 编译失败（`invalid redeclaration of 'body'`）。
+
+**落地**：R74 升级为**自动改名 + 警告**
+- 状态表：`body` → `bodyText`；警告提示已改名
+- IR 引用重写：`bind` / `show` / `value` / `colorDynamic` / `fontSizeDynamic` / `onSet.var` / `fieldOf.obj` / `bindParts[].bind` / `bindParts[].fieldOf` / `vfor.listState` / `condition` / `active.when`
+- handler 与 onMounted 源码：`stateStore.body` → `stateStore.bodyText`（在生成 runtime **之前**改）
+- 顺序坑（两次踩到）：① 状态表不能在 walk 之前改名（否则 `{{ body }}` 解析失败）② handler 改名必须早于 `generateRuntimeSource`（否则 JS 侧仍用旧名）
+
+**验证**
+- 单测：新增 R74 用例（状态表/bind/runtime 三处一致 + 无旧名残留）
+- 真实工程：`migrate/pages/Read.vue` 恢复 `const body` → gen 警告自动改名 → 产物 `@State private var bodyText` / `Text(bodyText)` / `bindState("bodyText")` → **iOS BUILD SUCCEEDED**、**Android BUILD SUCCESSFUL**
