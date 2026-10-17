@@ -537,7 +537,9 @@ function swiftCondExpr(expr: string, known?: Set<string>): string {
     // 先剥掉字符串字面量，避免把 "success" 之类当成标识符
     const stripped = expr.replace(/'[^']*'|"[^"]*"/g, '""');
     const ids = [...stripped.matchAll(/(?<![.\w$])([A-Za-z_$][\w$]*)/g)].map((m) => m[1]);
-    const unknown = ids.filter((id) => !known.has(id) && !['true', 'false', 'Math', 'String', 'Number'].includes(id));
+    const unknown = ids.filter(
+      (id) => !known.has(id) && !['true', 'false', 'Math', 'String', 'Number', 'vrnTruthy'].includes(id),
+    );
     if (unknown.length > 0) return 'true';
   }
   // R78 续（G12）：对象字段条件 → 非空判断
