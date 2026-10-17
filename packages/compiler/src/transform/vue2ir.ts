@@ -348,21 +348,6 @@ ${computedStates
   .join('\n')}
 }
 __vrnRecompute();
-// R116：store 引导——原生端没有 App.vue，页面脚本不会自动调用 store.init()，
-// 这里对全局所有 useXxxStore 单例统一触发一次 init（异步，结果由下面的重算循环拾取）
-(function () {
-  try {
-    var names = Object.getOwnPropertyNames(globalThis).filter(function (n) {
-      return /^use[A-Za-z0-9_$]*Store$/.test(n) && typeof globalThis[n] === "function";
-    });
-    names.forEach(function (n) {
-      try {
-        var st = globalThis[n]();
-        if (st && typeof st.init === "function") st.init();
-      } catch (e) {}
-    });
-  } catch (e) {}
-})();
 // R102：异步数据（store init / db 读取）落地后派生值要能跟上——启动后 2s 内持续重算
 (function () {
   var __n = 0;
@@ -377,7 +362,7 @@ __vrnRecompute();
     // M4b 动态列表态：list → JS 真数组（'[]' 或 '["a","b"]' JSON 字面量，Swift JSONSerialization 可解码）
     // R98：对象态在 JS 侧要是真对象（原生侧仍收 JSON 字符串），否则 {{ form.name }} 求值失败
     const v = s.obj && typeof s.init === 'string'
-      ? `JSON.parse(${JSON.stringify(s.init)})`
+      ? `(function(){try{return JSON.parse(${JSON.stringify(s.init)});}catch(e){return {};}})()`
       : s.list
       ? String(s.init)
       : s.init === '[]'
@@ -519,6 +504,21 @@ var router = {
     if (typeof __routerBack === "function") __routerBack();
   }
 };
+// R116：store 引导——原生端没有 main.ts 的启动序列，这里对所有 useXxxStore 单例触发 init()
+(function () {
+  try {
+    var names = Object.getOwnPropertyNames(globalThis).filter(function (n) {
+      return /^use[A-Za-z0-9_$]*Store$/.test(n) && typeof globalThis[n] === "function";
+    });
+    try { if (typeof bridge !== "undefined" && bridge && typeof bridge.toast === "function") bridge.toast("store:" + names.length); } catch (e) {}
+    names.forEach(function (n) {
+      try {
+        var st = globalThis[n]();
+        if (st && typeof st.init === "function") st.init();
+      } catch (e) {}
+    });
+  } catch (e) {}
+})();
 // handlers（<script setup> 函数体：ref.value → stateStore 重写）
 ${handlerSrc}
 ${computedBlock}${"" /* R102 见 computedBlock 内：仅当存在派生状态时才调度重算循环，避免无谓的定时器 */}// onMounted（Swift onAppear → invoke("__onMounted")）
