@@ -733,6 +733,17 @@ export function vueToIr(source: string, opts: Vue2IrOptions = {}): Vue2IrResult 
         warnings.push(`handler「${h.name}」函数体疑似含 TS 类型标注（如 const x: number = 1），runtime.js 将解析失败——请移除类型标注（R13 仅支持 JS 子集）`);
       }
     }
+    // R74：状态名撞原生保留成员（SwiftUI `body`、Kotlin 关键字等）会导致生成代码编译失败 → 必须提前警告
+    {
+      const RESERVED = ['body', 'self', 'init', 'class', 'object', 'fun', 'val', 'var', 'when', 'is', 'in'];
+      for (const st of stateInfo?.states ?? []) {
+        if (RESERVED.includes(st.name)) {
+          warnings.push(
+            `状态名「${st.name}」与原生保留成员冲突（SwiftUI body / Kotlin 关键字）——请改名（如 ${st.name}Text / ${st.name}Value），否则生成的 iOS/Android 代码无法编译`,
+          );
+        }
+      }
+    }
     navBarConfig = extractScreenNavBar(src, warnings);
     vforConsts = extractScreenConstArrays(src);
     onMountedBody = extractOnMounted(src);
