@@ -223,7 +223,8 @@ export interface IrScreen {
   /** 预留：静态数据表 */
   data?: Record<string, unknown>;
   /** 屏级状态（ref 提取）：name=变量名，init=初始值；生成 Swift @State */
-  state?: { name: string; init: number | string | boolean }[];
+  /** 页面状态；obj=true 表示对象态（init 为 JSON 字符串，供 vrnField 点路径读取，R85） */
+  state?: { name: string; init: number | string | boolean; list?: boolean; obj?: boolean }[];
   /** M3 <script setup> 提取的 handler 函数（@click="fn()" 引用；body 已做 .value → stateStore 重写）
    *  R72：async:true 表示 `async function`（JS 侧保留 async 关键字；Android 侧按协程形状生成） */
   handlers?: { name: string; params: string; body: string; async?: boolean }[];

@@ -18,6 +18,23 @@ function loadSample(): IrScreen {
   return screen;
 }
 
+describe('R85 对象态点路径取值', () => {
+  it('ref({...}) 声明为 JSON 字符串状态，模板点路径生成 vrnField 调用', () => {
+    const src = `<template><div class="page"><p class="t">共 {{ board.month.label }} 条 · {{ board.tags.length }}</p></div></template>
+<script setup>const board = ref({ month: { label: '10 月' }, tags: '生日' })</script>
+<style>.page { background: #0f1832; } .t { font-size: 13px; color: #ffffff; }</style>`;
+    const { screen } = vueToIr(src, { screenId: 'BoardCase' });
+    expect(validateIr(screen).ok).toBe(true);
+    const st = (screen.state ?? []).find((x) => x.name === 'board');
+    expect(st?.obj).toBe(true);
+    expect(String(st?.init)).toContain('"label"');
+    const swift = generateScreenSource(screen, { theme: buildTheme(collectTheme(screen.ui)) });
+    expect(swift).toContain('vrnField(board, "month.label")');
+    expect(swift).toContain('vrnField(board, "tags.length")');
+    expect(swift).toContain('@State private var board');
+  });
+});
+
 describe('R74 保留名自动重命名（产物断言）', () => {
   it('模板中名为 body 的状态生成 bodyText，且 SwiftUI 结构合法', () => {
     const src = `<template><div class="page"><p class="t">{{ body }}</p></div></template>

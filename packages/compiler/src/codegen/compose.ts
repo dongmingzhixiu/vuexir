@@ -160,10 +160,29 @@ const RUNTIME_KT = (bundleId: string) => `package ${bundleId}
 // Vuexir Android 运行时桥（对位 iOS RUNTIME_SWIFT）
 /** R73 持久化桥：对位 iOS runtime 的 localStorage（UserDefaults）—— SharedPreferences 同步读写 */
 /** R78 对象字段取值：状态里存 JSON 字符串时按 key 取值 */
-fun vrnField(json: String, key: String): String {
+// R85 点路径取值：path 支持 "a.b.c"，末段可为 length/size（数组/对象/字符串长度）
+fun vrnField(json: String, path: String): String {
     return try {
-        val o = org.json.JSONObject(json)
-        o.optString(key, "")
+        var cur: Any = org.json.JSONTokener(json).nextValue()
+        for (seg in path.split(".")) {
+            cur = when {
+                seg == "length" || seg == "size" -> when (cur) {
+                    is org.json.JSONArray -> cur.length()
+                    is org.json.JSONObject -> cur.length()
+                    is String -> cur.length
+                    else -> return ""
+                }
+                cur is org.json.JSONObject && cur.has(seg) -> cur.get(seg)
+                else -> return ""
+            }
+        }
+        when (cur) {
+            is String -> cur
+            is Boolean -> if (cur) "true" else "false"
+            is Double -> if (cur == Math.floor(cur) && !cur.isInfinite()) cur.toInt().toString() else cur.toString()
+            is Int, is Long -> cur.toString()
+            else -> cur.toString()
+        }
     } catch (e: Throwable) {
         ""
     }

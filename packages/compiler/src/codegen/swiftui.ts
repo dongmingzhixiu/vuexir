@@ -126,11 +126,25 @@ export const VRN_HELPERS_SWIFT = `import Foundation
 
 // vuexir 运行时辅助（R78 对象字段取值）
 /// R78 对象字段取值：状态里存 JSON 字符串时按 key 取值（非 JSON → 返回空串）
-func vrnField(_ json: String, _ key: String) -> String {
+/// R85 点路径取值：key 支持 "a.b.c" 与末段 ".length"（数组/字典/字符串长度）
+func vrnField(_ json: String, _ path: String) -> String {
     guard let data = json.data(using: .utf8),
-          let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-          let v = obj[key] else { return "" }
-    return v is String ? (v as? String ?? "") : String(describing: v)
+          let root = try? JSONSerialization.jsonObject(with: data, options: [.fragmentsAllowed]) else { return "" }
+    var cur: Any = root
+    for seg in path.split(separator: ".").map(String.init) {
+        if seg == "length" || seg == "size" {
+            if let a = cur as? [Any] { cur = a.count }
+            else if let d = cur as? [String: Any] { cur = d.count }
+            else if let s = cur as? String { cur = s.count }
+            else { return "" }
+            continue
+        }
+        if let d = cur as? [String: Any], let next = d[seg] { cur = next } else { return "" }
+    }
+    if let s = cur as? String { return s }
+    if let b = cur as? Bool { return b ? "true" : "false" }
+    if let n = cur as? NSNumber { return n.stringValue }
+    return String(describing: cur)
 }
 `;
 
@@ -1139,7 +1153,9 @@ export function generateScreenSource(
         }`;
       }
       const init =
-        typeof s.init === 'string'
+        s.obj && typeof s.init === 'string'
+          ? `#"${s.init}"#` // R85 对象态：JSON 原文（vrnField 按点路径解析）
+          : typeof s.init === 'string'
           ? `"${swiftStringEscape(s.init)}"`
           : typeof s.init === 'boolean'
             ? (s.init ? 'true' : 'false')

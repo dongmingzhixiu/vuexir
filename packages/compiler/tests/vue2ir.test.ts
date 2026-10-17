@@ -563,4 +563,16 @@ function calc() { const step: number = 1; count.value = count.value + step }
     const r = vueToIr(src);
     expect(r.warnings.some((w) => w.includes('事件修饰符暂不支持'))).toBe(true);
   });
+
+  it('R85 成员链插值：{{ a.b.c }} 与 {{ a.list.length }} 生成点路径 fieldOf', () => {
+    const src = `<template><div class="page"><p class="t">{{ board.month.label }}</p><p class="t">{{ board.tags.length }}</p><p class="t">{{ board.month.names }}</p></div></template>
+<script setup>const board = ref({ month: { label: '10 月', names: '阿明阿亮' }, tags: '生日' })</script>
+<style>.page { background: #0f1832; } .t { font-size: 14px; color: #ffffff; }</style>`;
+    const r = vueToIr(src);
+    expect(r.warnings.filter((w) => w.includes('不是页面状态'))).toEqual([]);
+    const nodes = JSON.stringify(r.screen.ui);
+    expect(nodes).toContain('"obj":"board","field":"month.label"');
+    expect(nodes).toContain('"obj":"board","field":"tags.length"');
+    expect(nodes).toContain('"obj":"board","field":"month.names"');
+  });
 });

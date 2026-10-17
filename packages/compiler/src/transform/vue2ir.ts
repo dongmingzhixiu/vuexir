@@ -26,7 +26,7 @@ export class VueCompileError extends Error {}
 
 /** <script setup> 状态提取结果：ref 状态 + 赋值 setter（最小子集） */
 export interface ScreenStateInfo {
-  states: { name: string; init: number | string | boolean; list?: boolean }[];
+  states: { name: string; init: number | string | boolean; list?: boolean; obj?: boolean }[];
   /** setter 函数名 → { target: 状态变量名, param: 形参名, expr: 无参函数体的赋值表达式 } */
   setters: Record<string, { target: string; param?: string; expr?: string }>;
 }
@@ -68,6 +68,31 @@ export function extractScreenState(script: string): ScreenStateInfo {
   for (const m of script.matchAll(/const\s+(\w+)\s*=\s*ref(?:<[^>]*>)?\(\s*\[([^\]]+)\]\s*\)/g)) {
     const json = '[' + m[2].trim().replace(/'([^']*)'/g, '"$1"') + ']';
     states.push({ name: m[1], init: json, list: true });
+  }
+  // R85 对象态：const board = ref({ month: { label: '10 月' }, tags: '生日' })
+  // init 存规范化 JSON 字符串（双端一致：Swift/Compose 交给 vrnField 点路径解析，JS 侧解析为对象）
+  for (const m of script.matchAll(/const\s+(\w+)\s*=\s*ref(?:<[^>]*>)?\(\s*\{/g)) {
+    const start = (m.index ?? 0) + m[0].length - 1;
+    let depth = 0;
+    let end = -1;
+    for (let i = start; i < script.length; i++) {
+      const ch = script[i];
+      if (ch === '{') depth++;
+      else if (ch === '}') {
+        depth--;
+        if (depth === 0) {
+          end = i;
+          break;
+        }
+      }
+    }
+    if (end === -1) continue;
+    const raw = script.slice(start, end + 1);
+    // 规范化：单引号 → 双引号；裸键加引号（仅限简单字面量对象，复杂表达式会被 vrnField 忽略该层）
+    const json = raw
+      .replace(/'([^']*)'/g, (_a, inner: string) => `"${inner.replace(/"/g, '\\"')}"`)
+      .replace(/([{,]\s*)([A-Za-z_$][\w$]*)\s*:/g, (_a, pre: string, key: string) => `${pre}"${key}":`);
+    states.push({ name: m[1], init: json, obj: true });
   }
   // 箭头函数（有参）：const f = (p) => { x.value = p } / const f = p => { ... }
   for (const m of script.matchAll(
@@ -991,14 +1016,15 @@ function walk(
           `插值 {{ ${name} }}：未在 <script setup> 中声明为 ref 状态（M1 白名单：仅支持已声明状态）`,
         );
       }
-      // R78 对象字段插值 {{ obj.field }}：obj 是页面状态 → 运行时 JSON 取值；否则明确警告 + 空文本降级
+      // R78/R85 对象字段插值 {{ obj.field }} / {{ obj.a.b }} / {{ obj.list.length }}：
+      // obj 是页面状态 → 运行时按点路径取值；否则明确警告 + 空文本降级
       {
-        const fld = name.match(/^([A-Za-z_$][\w$]*)\.([A-Za-z_$][\w$]*)$/);
+        const fld = matchFieldPath(name);
         if (fld) {
-          const isState = (state?.states ?? []).some((st) => st.name === fld[1]);
-          if (isState) return [{ type: 'text', props: { fieldOf: { obj: fld[1], field: fld[2] } } }];
+          const isState = (state?.states ?? []).some((st) => st.name === fld.obj);
+          if (isState) return [{ type: 'text', props: { fieldOf: { obj: fld.obj, field: fld.field } } }];
           warnings.push(
-            `插值 {{ ${name} }} 的对象「${fld[1]}」不是页面状态（如 Pinia store）→ 已生成占位文本；请把该字段提升为 ref（R78）`,
+            `插值 {{ ${name} }} 的对象「${fld.obj}」不是页面状态（如 Pinia store）→ 已生成占位文本；请把该字段提升为 ref（R78/R85）`,
           );
           return [{ type: 'text', props: { text: ' ' } }];
         }
@@ -1016,6 +1042,18 @@ function walk(
 }
 
 /** M2 模板内三元插值：`cond ? 'a' : 'b'` → Swift 三元字符串表达式；cond 需过 swiftExpr 白名单 */
+/**
+ * R85 成员链匹配：`a.b` / `a.b.c` / `a.list.length`
+ * 返回 { obj: 首段, field: 余下点路径 }；非纯成员链（含调用/下标/运算符）返回 null。
+ */
+function matchFieldPath(name: string): { obj: string; field: string } | null {
+  if (!/^[A-Za-z_$][\w$]*(\.[A-Za-z_$][\w$]*)+$/.test(name)) return null;
+  const segs = name.split('.');
+  // length/size 只允许出现在末段（作为属性读，而非方法调用）
+  if (segs.slice(1, -1).some((s) => s === 'length' || s === 'size')) return null;
+  return { obj: segs[0], field: segs.slice(1).join('.') };
+}
+
 function parseTernaryExpr(exp: string): string | null {
   const t = exp.trim();
   const m = t.match(/^(.+?)\s*\?\s*'([^']+)'\s*:\s*'([^']+)'$/);
@@ -1495,16 +1533,16 @@ function walkElement(
             }
             continue;
           }
-          // R78 对象字段插值 {{ obj.field }}（单插值）：状态对象 → fieldOf；非状态对象 → 警告 + 空文本
-          const fld2 = name.match(/^([A-Za-z_$][\w$]*)\.([A-Za-z_$][\w$]*)$/);
+          // R78/R85 对象字段插值 {{ obj.field }} / {{ obj.a.b }} / {{ obj.list.length }}（单插值）
+          const fld2 = matchFieldPath(name);
           if (fld2) {
-            const isState2 = (state?.states ?? []).some((st) => st.name === fld2[1]) || (propRefs?.has(fld2[1]) ?? false);
+            const isState2 = (state?.states ?? []).some((st) => st.name === fld2.obj) || (propRefs?.has(fld2.obj) ?? false);
             if (isState2) {
-              parts.push({ fieldOf: { obj: fld2[1], field: fld2[2] } });
+              parts.push({ fieldOf: { obj: fld2.obj, field: fld2.field } });
               continue;
             }
             warnings.push(
-              `插值 {{ ${name} }} 的对象「${fld2[1]}」不是页面状态（如 Pinia store）→ 已生成占位文本；请把该字段提升为 ref（R78）`,
+              `插值 {{ ${name} }} 的对象「${fld2.obj}」不是页面状态（如 Pinia store）→ 已生成占位文本；请把该字段提升为 ref（R78/R85）`,
             );
             parts.push({ text: ' ' });
             continue;
@@ -1518,10 +1556,17 @@ function walkElement(
         else if (/^\w+$/.test(name) && (loopVar || (state && state.states.some((s) => s.name === name))))
           parts.push({ bind: name });
         else if (propRefs) parts.push({ bind: name });
-        else
-          throw new VueCompileError(
-            `混合文本内插值 {{ ${name} }} 暂不支持（仅支持已声明状态 / 循环变量 / 动态列表项属性）`,
-          );
+        else {
+          // R85 混合文本内的成员链插值：`共 {{ board.month.label }} 条` / `{{ board.tags.length }}`
+          const mp = matchFieldPath(name);
+          if (mp && (state?.states ?? []).some((st) => st.name === mp.obj)) {
+            parts.push({ fieldOf: { obj: mp.obj, field: mp.field } });
+          } else {
+            throw new VueCompileError(
+              `混合文本内插值 {{ ${name} }} 暂不支持（仅支持已声明状态 / 循环变量 / 动态列表项属性 / 已声明对象的点路径 R85）`,
+            );
+          }
+        }
       } else if (child.type === NodeTypes.COMMENT) {
         // 忽略注释
       } else {
