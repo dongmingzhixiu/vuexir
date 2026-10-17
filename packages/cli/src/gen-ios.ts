@@ -16,6 +16,7 @@
 import { readFileSync, writeFileSync, mkdirSync, existsSync, readdirSync, statSync, copyFileSync, rmSync } from 'node:fs';
 import { basename, dirname, extname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { bundleProjectUtils } from './bundle.js';
 import { TEMPLATE_VERSION, VRN_BRIDGE_SWIFT, projectYml as PROJECT_YML, templateFiles } from '@dongmingzhixiu/vuexir-templates';
 import { parseRouter as parseRouterV2, findProjectRoot } from '@dongmingzhixiu/vuexir-compiler';
 import { validateIr } from '@dongmingzhixiu/vuexir-compiler';
@@ -710,6 +711,16 @@ function runTabs(appDir: string, opts: { routerFile?: string } = {}): string {
   rmSync(srcDir, { recursive: true, force: true });
   mkdirSync(srcDir, { recursive: true });
 
+  // R97 P2：把可独立运行的 utils 打成 IIFE，前置到每个页面 runtime 之前，
+  // 让 computed 里引用的外部函数（countChars / normalize …）在原生 JS 运行时可用
+  const utilsBundle = bundleProjectUtils(findProjectRoot(appDir));
+  if (utilsBundle.included.length > 0) {
+    console.log(`[gen-ios] utils bundle: ${utilsBundle.included.join(', ')}`);
+  }
+  for (const sk of utilsBundle.skipped) {
+    console.log(`[gen-ios] utils bundle 跳过 ${sk.file}：${sk.reason}`);
+  }
+
   const allUis: IrNode[] = [];
   const pageFiles: string[] = [];
   const pageRuntimes: { id: string; src: string }[] = [];
@@ -758,7 +769,7 @@ function runTabs(appDir: string, opts: { routerFile?: string } = {}): string {
     });
     for (const w of genWarnings) console.log(`[gen-ios] 生成提示（${tab.id}，tab 页）: ${w}`);
     writeFileSync(join(srcDir, `${pageId}View.swift`), swift);
-    writeFileSync(join(srcDir, `runtime_${pageId}.js`), r.runtime ?? '');
+    writeFileSync(join(srcDir, `runtime_${pageId}.js`), utilsBundle.code + '\n' + (r.runtime ?? ''));
     pageFiles.push(`${pageId}View.swift`);
     pageRuntimes.push({ id: pageId, src: r.runtime ?? '' });
     pageStates.push({
@@ -814,7 +825,7 @@ function runTabs(appDir: string, opts: { routerFile?: string } = {}): string {
     });
     for (const w of genWarnings) console.log(`[gen-ios] 生成提示（${d.id}，push 页）: ${w}`);
     writeFileSync(join(srcDir, viewFile), swift);
-    writeFileSync(join(srcDir, `runtime_${pageId}Detail.js`), r.runtime ?? '');
+    writeFileSync(join(srcDir, `runtime_${pageId}Detail.js`), utilsBundle.code + '\n' + (r.runtime ?? ''));
     pageFiles.push(viewFile);
     pageRuntimes.push({ id: `${pageId}Detail`, src: r.runtime ?? '' });
     detailPages.push({ id: d.id, title: d.title, view: viewName, path: d.path });

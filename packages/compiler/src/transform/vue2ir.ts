@@ -1052,16 +1052,9 @@ export function vueToIr(source: string, opts: Vue2IrOptions = {}): Vue2IrResult 
         const jsExpr = rawExpr.replace(/\b([A-Za-z_$][\w$]*)\.value\b/g, (all, id: string) =>
           stateNames.includes(id) ? `stateStore.${id}` : all,
         );
-        const idents = [...jsExpr.matchAll(/(?<![.\w$])([A-Za-z_$][\w$]*)/g)].map((m2) => m2[1]);
-        const unknown = idents.filter((id) => !SAFE.has(id) && !/^stateStore$/.test(id) && !stateNames.includes(id));
-        // 未知标识符只允许出现在字符串字面量里（粗筛：去掉引号内容再判一次）
-        const stripped = jsExpr.replace(/'[^']*'|"[^"]*"|`[^`]*`/g, '""');
-        const unknown2 = [...stripped.matchAll(/(?<![.\w$])([A-Za-z_$][\w$]*)/g)]
-          .map((m2) => m2[1])
-          .filter((id) => !SAFE.has(id) && !stateNames.includes(id));
-        if (unknown.length === 0 || unknown2.length === 0) {
-          stateInfo.states.push({ name, init: '', computed: jsExpr });
-        }
+        // R97：不再要求「标识符全部已知」——外部函数由 utils bundle（esbuild）提供，
+        // 运行时找不到时由 try/catch 兜住（保持 init 空串），不静默也不阻断编译
+        stateInfo.states.push({ name, init: '', computed: jsExpr });
       }
     }
     // R89 常量折叠：模块级纯常量（含可静态求值的模板字面量）注入为状态
