@@ -34,6 +34,10 @@ export interface GenerateOptions {
 /** 生成 Android（Compose）工程；返回产物目录 */
 export function generateAndroid(opts: GenerateOptions = {}): string {
   const input = resolveInput(opts.input);
+  // 直接给路由文件（src/router/index.ts 等）→ 用其目录 + 显式 routerFile
+  if (/\.(ts|js|mts)$/.test(input) && existsSync(input)) {
+    return runTabs(dirname(input), { routerFile: input, outDirRoot: opts.outDirRoot, projectName: opts.projectName, bundleId: opts.bundleId, renderGradle: (p, b) => buildGradle(b), templateVersion: TEMPLATE_VERSION });
+  }
   if (!existsSync(join(input, 'router.ts'))) {
     throw new Error(`[vrn] ${input} 缺少 router.ts（多页模式需要 router.ts；单页请用 gen-ios 路径或补 router.ts）`);
   }

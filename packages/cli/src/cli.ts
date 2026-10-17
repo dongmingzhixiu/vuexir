@@ -72,8 +72,8 @@ export async function generate(args: CliArgs, platform: Platform): Promise<strin
   const explicit = args.input ? await resolveExplicitEntry(args.input, cfg) : undefined;
   const resolved = explicit ? { entry: explicit.entry, multiPage: explicit.multiPage } : resolveEntry(cfg);
   const { entry, multiPage } = resolved;
-  /** 传给生成器的入口目录（生成器约定：目录内含 router.ts / App.vue） */
-  const inputDir = explicit ? explicit.dir : dirname(entry);
+  /** 传给生成器的入口（约定：路由文件路径 / 含 router.ts 的目录 / 含 App.vue 的目录） */
+  const inputDir = explicit ? explicit.dir : multiPage ? entry : dirname(entry);
   const projectName = cfg.projectName ?? deriveProjectName(cfg, entry);
   const bundleId = cfg.bundleId ?? `com.vrn.${projectName.toLowerCase()}`;
   const outRoot = platformOutDir(cfg, platform, '').replace(/\/$/, '');

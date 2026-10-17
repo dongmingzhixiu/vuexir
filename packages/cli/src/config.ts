@@ -83,9 +83,13 @@ export function resolveEntry(cfg: VrnConfig): { entry: string; multiPage: boolea
     if (existsSync(p)) return { entry: p, multiPage: p.endsWith('router.ts') || p.endsWith('router.js') };
     throw new Error(`vrn.config.entry 指向的文件不存在：${p}`);
   }
-  const router = join(cfg.projectRoot, 'src/router.ts');
-  const routerRoot = join(cfg.projectRoot, 'router.ts');
-  for (const r of [router, routerRoot]) {
+  const routerCandidates = [
+    join(cfg.projectRoot, 'src/router.ts'),
+    join(cfg.projectRoot, 'src/router/index.ts'),
+    join(cfg.projectRoot, 'src/router/index.js'),
+    join(cfg.projectRoot, 'router.ts'),
+  ];
+  for (const r of routerCandidates) {
     if (existsSync(r)) return { entry: r, multiPage: true };
     candidates.push(r);
   }

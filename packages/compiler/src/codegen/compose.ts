@@ -1188,6 +1188,8 @@ export interface RunTabsOptions {
   projectName?: string;
   /** bundle id（默认 com.vrn.<projectname 小写>） */
   bundleId?: string;
+  /** 显式路由文件（支持 src/router/index.ts 等非标准命名；默认 <appDir>/router.ts） */
+  routerFile?: string;
   /** P2：工程骨架模板由 @dongmingzhixiu/vuexir-templates 提供、CLI 注入（避免 compiler → templates 的依赖倒挂）
    *  回调式：runTabs 计算完 projectName/bundleId 后再渲染模板，避免调用方拿不到最终值 */
   renderGradle?: (projectName: string, bundleId: string) => string;
@@ -1195,7 +1197,7 @@ export interface RunTabsOptions {
 }
 
 function runTabs(appDir: string, opts: RunTabsOptions = {}): string {
-  const routerSrc = readFileSync(join(appDir, 'router.ts'), 'utf-8');
+  const routerSrc = readFileSync(opts.routerFile ?? join(appDir, 'router.ts'), 'utf-8');
   const { tabs, details } = parseRouter(routerSrc, appDir);
   console.log(`[gen-android] 多页模式: router.ts → ${tabs.length} 个 tab 页面` + (details.length ? ` + ${details.length} 个 push 页面` : ''));
 

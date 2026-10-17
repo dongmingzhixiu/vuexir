@@ -697,8 +697,8 @@ function parseRouter(
 }
 
 /** M4a 多页目录模式：samples/<name>/ 含 router.ts + pages/*.vue → TabView 工程 */
-function runTabs(appDir: string): string {
-  const routerSrc = readFileSync(join(appDir, 'router.ts'), 'utf-8');
+function runTabs(appDir: string, opts: { routerFile?: string } = {}): string {
+  const routerSrc = readFileSync(opts.routerFile ?? join(appDir, 'router.ts'), 'utf-8');
   const { tabs, details } = parseRouter(routerSrc, appDir);
   console.log(`[gen-ios] 多页模式: router.ts → ${tabs.length} 个 tab 页面` + (details.length ? ` + ${details.length} 个 push 页面` : ''));
 
@@ -938,6 +938,14 @@ function runMain(arg: string | undefined): string | undefined {
   // CLI/用户工程：arg 为含 router.ts 的目录（绝对或相对当前工作目录）
   if (arg && existsSync(join(arg, 'router.ts'))) {
     return runTabs(join(arg));
+  }
+  // 直接给路由文件（src/router/index.ts 等）：用其所在目录 + 显式 routerFile
+  if (arg && /\.(ts|js|mts)$/.test(arg) && existsSync(arg)) {
+    return runTabs(dirname(arg), { routerFile: arg });
+  }
+  // 单页工程：arg 为含 App.vue 的目录（Vite 常见结构 src/App.vue）
+  if (arg && existsSync(join(arg, 'App.vue'))) {
+    return runOne(join(arg, 'App.vue'));
   }
 
   // M4a 多页目录模式：arg 指向含 router.ts 的目录（如 samples/tabs）
