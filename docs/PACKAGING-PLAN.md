@@ -205,3 +205,20 @@ cd ../create-vrn-app    && npm publish --access public
 冒烟：`cd /tmp && npx create-vuexir smoke && cd smoke && npm i && npx vuexir gen ios`
 
 **尚缺（不阻塞首发）**：`repository` 字段（等你给 GitHub 地址）；运行时桥模板继续外置；增量重生成；Vite 插件 HMR。
+
+## 十、一键发布脚本（`npm run publish:pkgs`）
+
+```bash
+npm run publish:pkgs                  # 发布所有「版本未上线」的包（已存在的自动跳过，可重复执行）
+npm run publish:pkgs -- --bump patch  # 先升版本（patch|minor|major）再发布，自动同步内部依赖范围
+npm run publish:pkgs -- --otp 123456  # 直接带 OTP（不交互；也可 NPM_OTP=123456）
+npm run publish:pkgs -- --dry-run     # 只打包预览（npm pack --dry-run）
+npm run publish:pkgs -- --only cli    # 只处理指定包
+npm run publish:pkgs -- --no-build    # 跳过 dist 构建
+```
+
+行为要点：
+- **依赖序**：compiler → templates → cli → vite-plugin → create-vrn-app（cli 依赖前两者）
+- **幂等**：每包先 `npm view <name>@<version> version`，已存在就跳过 → 失败可重复执行
+- **2FA**：命中 `Two-factor authentication / EOTP` 时，优先用 `--otp` / `NPM_OTP`，否则交互提示输入后重试一次
+- **路径坑**：脚本用 `cwd: packages/<dir>` 发布，规避 `npm publish packages/x` 被当成 git 简写（`github:packages/x`）的老问题

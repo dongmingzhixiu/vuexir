@@ -15,7 +15,8 @@
     "ios": "bash scripts/ios-run.sh",
     "ios:vuexir-demo": "bash scripts/ios-run.sh vuexir-demo",
     "android": "bash scripts/android-run.sh",
-    "android:vuexir-demo": "bash scripts/android-run.sh vuexir-demo"
+    "android:vuexir-demo": "bash scripts/android-run.sh vuexir-demo",
+    "publish:pkgs": "node scripts/publish.mjs"
   },
   "dependencies": {
     "@dongmingzhixiu/vuexir": "^0.1.1",
