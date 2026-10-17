@@ -172,6 +172,23 @@ const RUNTIME_SWIFT = `final class Runtime {
             VrnBridge.openUrl(url)
         }
         ctx.setObject(nativeOpenUrl, forKeyedSubscript: "__nativeOpenUrl" as NSString)
+        // R84 桥能力扩展：震动 / 剪贴板 / 状态栏 / 屏幕常亮
+        let nativeVibrate: @convention(block) (Double) -> Void = { ms in
+            VrnBridge.vibrate(Int(ms))
+        }
+        ctx.setObject(nativeVibrate, forKeyedSubscript: "__nativeVibrate" as NSString)
+        let nativeCopy: @convention(block) (String) -> Void = { text in
+            VrnBridge.copy(text)
+        }
+        ctx.setObject(nativeCopy, forKeyedSubscript: "__nativeCopy" as NSString)
+        let nativeSetStatusBar: @convention(block) (String) -> Void = { style in
+            VrnBridge.setStatusBar(style)
+        }
+        ctx.setObject(nativeSetStatusBar, forKeyedSubscript: "__nativeSetStatusBar" as NSString)
+        let nativeKeepScreenOn: @convention(block) (Bool) -> Void = { on in
+            VrnBridge.keepScreenOn(on)
+        }
+        ctx.setObject(nativeKeepScreenOn, forKeyedSubscript: "__nativeKeepScreenOn" as NSString)
 
         // M4b router 桥：router.push('/path') / router.back() → 容器导航（静态 handler 由 ContentView onAppear 注册）
         let routerPush: @convention(block) (String) -> Void = { path in

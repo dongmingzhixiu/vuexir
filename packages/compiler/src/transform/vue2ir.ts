@@ -279,14 +279,34 @@ if (typeof queueMicrotask !== "function") {
 
 // R81 原生桥：bridge.toast / bridge.openUrl（iOS 由 __nativeToast/__nativeOpenUrl 宿主函数实现；
 // Android 由编译器把 bridge.* 翻译成 VrnBridge.*；浏览器预览退回 alert/console）
+// R81/R84 原生桥：编译期注入的实现（iOS VrnBridge.swift / Android VrnBridge.kt）
+// 未注入原生实现时（浏览器预览）退化为 console / window 语义，保证同一份代码两端可跑
+function __vrnNative(name) {
+  return typeof globalThis[name] === "function" || typeof (typeof self !== "undefined" ? self[name] : undefined) === "function";
+}
 var bridge = {
+  isNative: __vrnNative("__nativeToast"),
   toast: function (msg) {
-    if (typeof __nativeToast === "function") __nativeToast(String(msg));
+    if (__vrnNative("__nativeToast")) __nativeToast(String(msg));
     else if (typeof console !== "undefined") console.log("[bridge.toast]", msg);
   },
   openUrl: function (url) {
-    if (typeof __nativeOpenUrl === "function") __nativeOpenUrl(String(url));
+    if (__vrnNative("__nativeOpenUrl")) __nativeOpenUrl(String(url));
     else if (typeof window !== "undefined") window.open(String(url), "_blank");
+  },
+  vibrate: function (ms) {
+    if (__vrnNative("__nativeVibrate")) __nativeVibrate(Number(ms) > 0 ? Number(ms) : 18);
+    else if (typeof navigator !== "undefined" && navigator.vibrate) navigator.vibrate(Number(ms) > 0 ? Number(ms) : 18);
+  },
+  copy: function (text) {
+    if (__vrnNative("__nativeCopy")) __nativeCopy(String(text));
+    else if (typeof navigator !== "undefined" && navigator.clipboard) navigator.clipboard.writeText(String(text));
+  },
+  setStatusBar: function (style) {
+    if (__vrnNative("__nativeSetStatusBar")) __nativeSetStatusBar(String(style));
+  },
+  keepScreenOn: function (on) {
+    if (__vrnNative("__nativeKeepScreenOn")) __nativeKeepScreenOn(!!on);
   }
 };
 

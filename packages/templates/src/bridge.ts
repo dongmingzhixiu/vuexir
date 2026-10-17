@@ -52,6 +52,44 @@ enum VrnBridge {
         }
     }
 
+    /// 震动反馈（毫秒，默认 18ms 轻震；无振动马达设备静默忽略）
+    static func vibrate(_ milliseconds: Int = 18) {
+        DispatchQueue.main.async {
+            let gen = UIImpactFeedbackGenerator(style: .medium)
+            gen.prepare()
+            gen.impactOccurred()
+            if milliseconds > 40 {
+                // 长震：连续两次冲击近似 40ms+ 的反馈强度
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) { gen.impactOccurred() }
+            }
+        }
+    }
+
+    /// 复制文本到系统剪贴板
+    static func copy(_ text: String) {
+        DispatchQueue.main.async {
+            UIPasteboard.general.string = text
+        }
+    }
+
+    /// 状态栏样式：'light'（浅色图标，深色背景用）/ 'dark'（深色图标，浅色背景用）
+    static func setStatusBar(_ style: String) {
+        DispatchQueue.main.async {
+            let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
+            let target: UIUserInterfaceStyle = style == "dark" ? .light : .dark
+            for window in scenes.flatMap({ $0.windows }) {
+                window.overrideUserInterfaceStyle = target
+            }
+        }
+    }
+
+    /// 保持屏幕常亮（true 开启 / false 关闭）
+    static func keepScreenOn(_ on: Bool) {
+        DispatchQueue.main.async {
+            UIApplication.shared.isIdleTimerDisabled = on
+        }
+    }
+
     /// 打开链接（Safari / 系统处理）
     static func openUrl(_ url: String) {
         DispatchQueue.main.async {
@@ -80,6 +118,50 @@ object VrnBridge {
         val ctx = appCtx ?: return
         android.os.Handler(ctx.mainLooper).post { Toast.makeText(ctx, message, Toast.LENGTH_SHORT).show() }
     }
+    fun vibrate(milliseconds: Int = 18) {
+        val ctx = appCtx ?: return
+        try {
+            val v = ctx.getSystemService(android.content.Context.VIBRATOR_SERVICE) as? android.os.Vibrator
+            if (v == null || !v.hasVibrator()) return
+            if (android.os.Build.VERSION.SDK_INT >= 26) {
+                v.vibrate(android.os.VibrationEffect.createOneShot(milliseconds.toLong(), android.os.VibrationEffect.DEFAULT_AMPLITUDE))
+            } else {
+                @Suppress("DEPRECATION")
+                v.vibrate(milliseconds.toLong())
+            }
+        } catch (e: Throwable) {
+            // 无权限/无马达：静默忽略
+        }
+    }
+
+    fun copy(text: String) {
+        val ctx = appCtx ?: return
+        try {
+            val cm = ctx.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+            cm.setPrimaryClip(android.content.ClipData.newPlainText("vrn", text))
+        } catch (e: Throwable) {
+            // 忽略
+        }
+    }
+
+    fun setStatusBar(style: String) {
+        val act = currentActivity ?: return
+        android.os.Handler(act.mainLooper).post {
+            val light = style != "dark"
+            val controller = androidx.core.view.WindowCompat.getInsetsController(act.window, act.window.decorView)
+            controller.isAppearanceLightStatusBars = !light
+            controller.isAppearanceLightNavigationBars = !light
+        }
+    }
+
+    fun keepScreenOn(on: Boolean) {
+        val act = currentActivity ?: return
+        android.os.Handler(act.mainLooper).post {
+            if (on) act.window.addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+            else act.window.clearFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        }
+    }
+
     fun openUrl(url: String) {
         val ctx = appCtx ?: return
         try {
