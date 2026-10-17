@@ -242,3 +242,15 @@ npm run publish:pkgs -- --no-build    # 跳过 dist 构建
 **用已发布包验证（而非本地 dist）**：临时目录 `npm i @dongmingzhixiu/vuexir@0.2.0` → `@dongmingzhixiu/vuexir-compiler/swift|schema|compose` 三个子路径导入全部成功（R82 修复生效，旧版会报 `dist/[object Object].js` 找不到）；`vite-plugin/preview/` 四个文件随包发布；用**registry 的 CLI** 对 birthday-app 执行 `vrn gen ios|android` → iOS `BUILD SUCCEEDED`、Android `BUILD SUCCESSFUL`、模拟器装机 OCR 正常、剪贴板桥实测 `vrn-bridge-ok`。
 
 **npm 缓存坑**：registry 已有 0.2.0 但 `npm i pkg@0.2.0` 报 `notarget No matching version` —— 本地 metadata 缓存未刷新，需 `npm cache clean --force` / `--prefer-online`。
+
+### 事故复盘：0.2.1 一度「装不上」（2026-10-18）
+
+**现象**：`npm i @dongmingzhixiu/vuexir@0.2.1` 报 `ETARGET notarget ... vuexir-compiler@^0.2.2`。
+
+**成因**：`--bump patch` 会把**所有**包一起升版本并同步内部依赖范围——于是 cli/vite-plugin 的依赖写成 `compiler@^0.2.2`；但 npm 新版发布是「staged → processing → 落库」，compiler 0.2.2 在几分钟内对 registry 查是 **404**。这中间窗口里，已落库的 cli@0.2.1 依赖了不存在的版本 → 用户装不上。
+
+**修复**：把 compiler 直接发到 0.2.3（`^0.2.2` 可被 0.2.3 满足），随后 0.2.2 也延迟落库，registry 现为 `0.2.0 / 0.2.1 / 0.2.2 / 0.2.3`，`latest=0.2.3`。
+
+**流程加固**：`scripts/publish.mjs` 新增发布后校验——
+1. **落库轮询**：发布完成后最多等 5 分钟，轮询 `npm view <pkg> versions` 直到每个新版本可见；超时只告警、**不建议立刻改版本重发**（会撞 `409 Cannot publish over previously staged version`）。
+2. **内部依赖一致性**：读已发布的 `dependencies`，检查每个 `@dongmingzhixiu/*` 范围都能被 registry 现有版本满足，做不到就报错——正是这次事故的直接检测项。

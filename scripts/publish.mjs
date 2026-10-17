@@ -157,6 +157,80 @@ for (const dir of targets) {
   }
 }
 
+// ---------- 3.5 发布后校验（npm 新版是「staged/processing」，落库有延迟）----------
+/** 读 registry 上某包已可见的版本列表（corgi 元数据，与 npm install 同源） */
+function liveVersions(name) {
+  const r = spawnSync('npm', ['view', name, 'versions', '--json'], { encoding: 'utf-8' });
+  if (r.status !== 0) return [];
+  try {
+    const v = JSON.parse(r.stdout || '[]');
+    return Array.isArray(v) ? v : [v];
+  } catch {
+    return [];
+  }
+}
+
+/** 依赖范围的最小可满足版本（够用即可：只解析 ^x.y.z / ~x.y.z / x.y.z） */
+function minVersion(range) {
+  const m = String(range).match(/(\d+\.\d+\.\d+)/);
+  return m ? m[1] : null;
+}
+
+function cmpVer(a, b) {
+  const pa = a.split('.').map(Number);
+  const pb = b.split('.').map(Number);
+  for (let i = 0; i < 3; i++) if (pa[i] !== pb[i]) return pa[i] - pb[i];
+  return 0;
+}
+
+const published = results.filter((r) => r.status === 'published');
+if (published.length > 0 && !dryRun) {
+  console.log('\n── 发布后校验（等 registry 落库，最多 5 分钟）──');
+  const deadline = Date.now() + 300_000;
+  const pending = new Set(published.map((r) => r.spec));
+  while (pending.size > 0 && Date.now() < deadline) {
+    for (const spec of [...pending]) {
+      const [name, ver] = spec.split('@').length > 2 ? [spec.slice(0, spec.lastIndexOf('@')), spec.slice(spec.lastIndexOf('@') + 1)] : spec.split('@');
+      if (liveVersions(name).includes(ver)) {
+        console.log(`  ✓ ${spec} 已在 registry 可见`);
+        pending.delete(spec);
+      }
+    }
+    if (pending.size === 0) break;
+    await new Promise((res) => setTimeout(res, 15000));
+  }
+  for (const spec of pending) {
+    console.error(`  ✗ ${spec} 超时仍不可见（npm 仍在 processing，稍后用 npm view 复核，不要立刻改版本重发）`);
+  }
+
+  // 内部依赖范围必须能被「registry 可见版本」满足，否则用户装不上（0.2.1 那次就是这个坑）
+  console.log('\n── 内部依赖一致性 ──');
+  let depBroken = 0;
+  for (const spec of published.map((r) => r.spec)) {
+    const at = spec.lastIndexOf('@');
+    const name = spec.slice(0, at);
+    const r = spawnSync('npm', ['view', name, 'dependencies', '--json'], { encoding: 'utf-8' });
+    if (r.status !== 0) continue;
+    let deps = {};
+    try {
+      deps = JSON.parse(r.stdout || '{}');
+    } catch {
+      continue;
+    }
+    for (const [dn, range] of Object.entries(deps ?? {})) {
+      if (!dn.startsWith('@dongmingzhixiu/') && dn !== 'create-vuexir') continue;
+      const need = minVersion(range);
+      const live = liveVersions(dn);
+      const ok = need ? live.some((v) => cmpVer(v, need) >= 0) : live.length > 0;
+      if (!ok) {
+        console.error(`  ✗ ${spec} 依赖 ${dn}@${range}，但 registry 没有满足该范围的版本（用户会装不上）`);
+        depBroken++;
+      }
+    }
+  }
+  if (depBroken === 0) console.log('  ✓ 所有内部依赖范围均可满足');
+}
+
 // ---------- 4. 汇总 ----------
 console.log('\n── 汇总 ──');
 for (const r of results) console.log(`  ${r.status.padEnd(9)} ${r.spec}`);
