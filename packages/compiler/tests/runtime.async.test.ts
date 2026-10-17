@@ -170,3 +170,20 @@ function sync() { n.value = 2 }`));
     expect(byName.sync.async).toBeUndefined();
   });
 });
+
+describe('R96 computed 运行时求值', () => {
+  it('状态自足的 computed 注册为求值状态，runtime 里生成 recompute 写回 stateStore', async () => {
+    const { vueToIr } = await import('../src/transform/vue2ir');
+    const src = `<template><div class="page"><p class="t">{{ greet }} / {{ upper }}</p></div></template>
+<script setup>
+const greet = ref('你好')
+const upper = computed(() => greet.value + ' · 光')
+</script>
+<style>.page { background: #0b1020; padding: 16px; } .t { font-size: 14px; color: #ffffff; }</style>`;
+    const r = vueToIr(src, { screenId: 'C' });
+    const st = (r.screen.state ?? []).find((x) => x.name === 'upper');
+    expect(st?.computed).toContain('stateStore.greet');
+    expect(r.runtime ?? '').toContain('stateStore.upper = String(stateStore.greet');
+    expect(r.runtime ?? '').toContain('__vrnRecompute()');
+  });
+});

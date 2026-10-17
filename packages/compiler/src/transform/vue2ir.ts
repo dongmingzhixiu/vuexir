@@ -84,7 +84,14 @@ function flattenStorePath(name: string): string {
 
 /** <script setup> 状态提取结果：ref 状态 + 赋值 setter（最小子集） */
 export interface ScreenStateInfo {
-  states: { name: string; init: number | string | boolean; list?: boolean; obj?: boolean }[];
+  states: {
+    name: string;
+    init: number | string | boolean;
+    list?: boolean;
+    obj?: boolean;
+    /** R96 computed 表达式（JS 运行时求值后写回该状态） */
+    computed?: string;
+  }[];
   /** setter 函数名 → { target: 状态变量名, param: 形参名, expr: 无参函数体的赋值表达式 } */
   setters: Record<string, { target: string; param?: string; expr?: string }>;
 }
@@ -286,11 +293,25 @@ export function rewriteStateRefs(body: string, names: string[]): string {
 
 /** 生成 runtime.js 完整内容（M3：stateStore Proxy + handlers + onMounted + localStorage shim） */
 export function generateRuntimeSource(
-  states: { name: string; init: number | string | boolean; list?: boolean }[],
+  states: { name: string; init: number | string | boolean; list?: boolean; computed?: string }[],
   handlers: { name: string; params: string; body: string; async?: boolean }[],
   onMounted: string | undefined,
   onMountedAsync = false,
 ): string {
+  // R96 computed：JS 运行时按表达式求值并写回 stateStore（写回经 Proxy → pushState 直达原生）
+  const computedStates = states.filter((st) => st.computed);
+  const computedBlock =
+    computedStates.length === 0
+      ? ''
+      : `
+// R96 computed 求值：页面里的 computed(() => expr) 原样在 JS 里算，结果写回状态
+function __vrnRecompute() {
+${computedStates
+  .map((st) => `  try { stateStore.${st.name} = String(${st.computed}); } catch (e) { /* 求值失败保持初值 */ }`)
+  .join('\n')}
+}
+__vrnRecompute();
+`;
   const initPairs = states.map((s) => {
     // M4b 动态列表态：list → JS 真数组（'[]' 或 '["a","b"]' JSON 字面量，Swift JSONSerialization 可解码）
     const v = s.list
@@ -430,7 +451,7 @@ var router = {
 };
 // handlers（<script setup> 函数体：ref.value → stateStore 重写）
 ${handlerSrc}
-// onMounted（Swift onAppear → invoke("__onMounted")）
+${computedBlock}// onMounted（Swift onAppear → invoke("__onMounted")）
 ${onMounted !== undefined ? `${onMountedAsync ? 'async ' : ''}function __onMounted() {\n${indentBody(onMounted)}\n}` : ''}`;
 }
 
@@ -1015,6 +1036,34 @@ export function vueToIr(source: string, opts: Vue2IrOptions = {}): Vue2IrResult 
         derivedNames.set(cm[1], flat);
       }
     }
+    // R96 computed 求值：`const X = computed(() => expr)` 状态自足时注册为「运行时求值状态」
+    // expr 里的 ref.value 会被重写成 stateStore.X；含未知标识符（外部函数/未声明变量）则跳过，
+    // 留给后续 P2 打包阶段（需要 utils 进 bundle 才能算）
+    {
+      const stateNames = stateInfo.states.map((st) => st.name);
+      const SAFE = new Set([
+        'Math', 'String', 'Number', 'Boolean', 'Date', 'JSON', 'parseInt', 'parseFloat',
+        'undefined', 'null', 'true', 'false', 'Array', 'Object', 'stateStore',
+      ]);
+      for (const cm of src.matchAll(/const\s+([A-Za-z_$][\w$]*)\s*=\s*computed\s*\(\s*\(\s*\)\s*=>\s*([^\n]+?)\s*\)\s*$/gm)) {
+        const name = cm[1];
+        const rawExpr = cm[2].trim();
+        if (stateInfo.states.some((st) => st.name === name)) continue;
+        const jsExpr = rawExpr.replace(/\b([A-Za-z_$][\w$]*)\.value\b/g, (all, id: string) =>
+          stateNames.includes(id) ? `stateStore.${id}` : all,
+        );
+        const idents = [...jsExpr.matchAll(/(?<![.\w$])([A-Za-z_$][\w$]*)/g)].map((m2) => m2[1]);
+        const unknown = idents.filter((id) => !SAFE.has(id) && !/^stateStore$/.test(id) && !stateNames.includes(id));
+        // 未知标识符只允许出现在字符串字面量里（粗筛：去掉引号内容再判一次）
+        const stripped = jsExpr.replace(/'[^']*'|"[^"]*"|`[^`]*`/g, '""');
+        const unknown2 = [...stripped.matchAll(/(?<![.\w$])([A-Za-z_$][\w$]*)/g)]
+          .map((m2) => m2[1])
+          .filter((id) => !SAFE.has(id) && !stateNames.includes(id));
+        if (unknown.length === 0 || unknown2.length === 0) {
+          stateInfo.states.push({ name, init: '', computed: jsExpr });
+        }
+      }
+    }
     // R89 常量折叠：模块级纯常量（含可静态求值的模板字面量）注入为状态
     for (const km of src.matchAll(/const\s+([A-Za-z_$][\w$]*)\s*(?::[^=]+)?=\s*(`[^`]*`|'[^']*'|"[^"]*"|-?\d+(?:\.\d+)?)\s*$/gm)) {
       const raw = km[2];
@@ -1079,7 +1128,8 @@ export function vueToIr(source: string, opts: Vue2IrOptions = {}): Vue2IrResult 
       for (const h of handlers ?? []) h.body = renameSrc(h.body);
       if (onMountedBody !== undefined) onMountedBody = renameSrc(onMountedBody);
     }
-    if (handlers.length > 0 || onMountedBody !== undefined) {
+    const hasComputed = (stateInfo?.states ?? []).some((st) => st.computed);
+    if (handlers.length > 0 || onMountedBody !== undefined || hasComputed) {
       runtime = generateRuntimeSource(stateInfo?.states ?? [], handlers, onMountedBody, onMountedAsync);
     }
   }
