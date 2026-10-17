@@ -72,6 +72,8 @@ function rgbHex(r: number, g: number, b: number): string {
 }
 
 /** 当前工程的色板（hex → Theme 名 / fontKey → Theme 名）；generateScreenSource 设置 */
+let currentStateNames: Set<string> = new Set();
+
 let currentColorNames: Map<string, string> | undefined;
 let currentFontNames: Map<string, string> | undefined;
 /** R43：frame 组合抽离为 View 扩展方法（theme 模式启用） */
@@ -533,12 +535,13 @@ function emitNode(node: IrNode, ctx: Ctx): string {
 /** JS 条件表达式 → Swift 兼容：===/!== 为 JS 严格比较，Swift 用 ==/!=；字符串字面量单引号 → 双引号 */
 function swiftCondExpr(expr: string, known?: Set<string>): string {
   // R114：条件引用原生端不存在的标识符 → true（保留内容），避免整页编译失败
-  if (known && known.size > 0) {
+  const knownSet = known && known.size > 0 ? known : currentStateNames;
+  if (knownSet && knownSet.size > 0) {
     // 先剥掉字符串字面量，避免把 "success" 之类当成标识符
     const stripped = expr.replace(/'[^']*'|"[^"]*"/g, '""');
     const ids = [...stripped.matchAll(/(?<![.\w$])([A-Za-z_$][\w$]*)/g)].map((m) => m[1]);
     const unknown = ids.filter(
-      (id) => !known.has(id) && !['true', 'false', 'Math', 'String', 'Number', 'vrnTruthy'].includes(id),
+      (id) => !knownSet.has(id) && !['true', 'false', 'Math', 'String', 'Number', 'vrnTruthy'].includes(id),
     );
     if (unknown.length > 0) return 'true';
   }
@@ -1185,6 +1188,7 @@ export function generateScreenSource(
   } = {},
 ): string {
   const __stateNames = new Set((screen.state ?? []).map((st) => st.name));
+  currentStateNames = __stateNames;
   const rt = opts.runtime ?? 'Runtime.shared';
   // R42：色板存在时颜色/字体走 Theme token；R43：frame 走 View 扩展短调用
   currentColorNames = opts.theme?.colorNames;

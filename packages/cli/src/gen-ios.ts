@@ -744,6 +744,7 @@ function runTabs(appDir: string, opts: { routerFile?: string } = {}): string {
       title: tab.title,
       components: loadComponents(tab.file),
       storeSources: loadStoreSources(tab.file),
+      allowUnknownComponents: true,
     });
     if (r.warnings.length > 0) {
       console.log(`[gen-ios] 编译提示（${tab.id}，${r.warnings.length} 条）:`);
@@ -807,6 +808,7 @@ function runTabs(appDir: string, opts: { routerFile?: string } = {}): string {
       title: d.title,
       components: loadComponents(d.file),
       storeSources: loadStoreSources(d.file),
+      allowUnknownComponents: true,
     });
     for (const w of r.warnings) console.log(`[gen-ios] 编译提示（${d.id}，push 页）: ${w}`);
     const v = validateIr(r.screen);

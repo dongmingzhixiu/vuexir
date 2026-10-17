@@ -54,6 +54,9 @@ function addJsExprState(expr: string): string {
   return name;
 }
 
+/** R115 是否允许未注册组件降级（由 vueToIr 选项设置） */
+let allowUnknownComponentsFlag = false;
+
 /** R104 脚本里声明过的名字（const/let/function）——未登记为 state 时走运行时求值 */
 let scriptDeclaredNames: Set<string> = new Set();
 
@@ -940,6 +943,8 @@ const TAG_MAP: Record<string, { type: string; defaultProps?: IrProps }> = {
 export interface Vue2IrOptions {
   /** R86 Pinia store 源码（文件名 → 源码）；提供后页面可用 `const ui = useUiStore()` 读状态 */
   storeSources?: Record<string, string>;
+  /** R115：允许未注册的自定义组件降级为占位（工程迁移用；库默认仍按 R13 报错） */
+  allowUnknownComponents?: boolean;
   screenId?: string;
   title?: string;
   /** 设计稿高度（默认 640，R16 适配基准） */
@@ -973,6 +978,7 @@ export function vueToIr(source: string, opts: Vue2IrOptions = {}): Vue2IrResult 
   storeGetterWarnings = [];
   jsExprSeq = 0;
   jsExprStates = [];
+  allowUnknownComponentsFlag = opts.allowUnknownComponents === true;
   const warnings: string[] = [];
   const { descriptor, errors } = parse(source, { filename: 'Screen.vue' });
   if (errors.length > 0) {
@@ -1839,6 +1845,10 @@ function walkElement(
       const pos = compPosition.get(comp.name) ?? {};
       return componentUseNode(node, comp, pos, warnings);
     }
+    if (allowUnknownComponentsFlag) {
+      warnings.push(`自定义组件 <${node.tag}> 未迁移 → 已降级为占位（R115）`);
+      return { type: 'group', props: { flexDirection: 'column', padding: 8 }, children: [{ type: 'text', props: { text: ' ' } }] };
+    }
     throw new VueCompileError(
       `未知标签 <${node.tag}>（元素归一化表外；组件/自定义标签暂不支持，R13）`,
     );
@@ -2172,7 +2182,11 @@ function walkElement(
 
   // R108：文本节点丢弃布局类属性（原生端 width/height/flexDirection 只对容器有意义）
   if (mapping.type === 'text') {
-    const LAYOUT_ONLY = ['height', 'width', 'flexDirection', 'justifyContent', 'alignItems', 'flex', 'gap'];
+    const LAYOUT_ONLY = [
+      'height', 'width', 'flexDirection', 'justifyContent', 'alignItems', 'flex', 'gap',
+      'clip', 'overflow', 'marginBottom', 'marginRight', 'marginLeft', 'borderSides',
+      'radius', 'opacity', 'position', 'absTop', 'absLeft', 'absRight', 'absBottom',
+    ];
     const dropped = LAYOUT_ONLY.filter((k) => (props as Record<string, unknown>)[k] !== undefined);
     if (dropped.length > 0) {
       for (const k of dropped) delete (props as Record<string, unknown>)[k];

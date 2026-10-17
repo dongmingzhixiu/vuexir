@@ -1679,6 +1679,7 @@ function runTabs(appDir: string, opts: RunTabsOptions = {}): string {
       title: tab.title,
       components: loadComponents(tab.file),
       storeSources: loadStoreSources(tab.file),
+      allowUnknownComponents: true,
     });
     if (r.warnings.length > 0) {
       console.log(`[gen-android] 编译提示（${tab.id}，${r.warnings.length} 条）:`);
@@ -1715,6 +1716,7 @@ function runTabs(appDir: string, opts: RunTabsOptions = {}): string {
       title: d.title,
       components: loadComponents(d.file),
       storeSources: loadStoreSources(d.file),
+      allowUnknownComponents: true,
     });
     if (r.warnings.length > 0) {
       console.log(`[gen-android] 编译提示（${d.id}，${r.warnings.length} 条）:`);
