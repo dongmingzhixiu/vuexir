@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildNavHost, emitNode, parseRouter } from '../src/codegen/compose';
+import { buildNavHost, emitNode, parseRouter, RUNTIME_KT } from '../src/codegen/compose';
 import { vueToIr } from '../src/transform/vue2ir';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -221,5 +221,16 @@ describe('R94 Compose 颜色与内联 lambda', () => {
     const kt = emitNode(screen.ui, localCtx, 1);
     expect(kt).not.toContain('RGBA');
     expect(kt).toMatch(/Color\(0x[0-9A-F]{8}\)/);
+  });
+});
+
+describe('R95 P1 Android JS 运行时（QuickJS）', () => {
+  it('Runtime.kt 暴露 VrnJs（init/eval/drain），与 iOS JavaScriptCore 对位', () => {
+    const kt = RUNTIME_KT('com.vrn.demo');
+    expect(kt).toContain('object VrnJs');
+    expect(kt).toContain('fun eval(');
+    expect(kt).toContain('fun drain(');
+    expect(kt).toContain('__vrnOut');
+    expect(kt).toContain('localStorage');
   });
 });

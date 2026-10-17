@@ -103,6 +103,7 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         Store.init(applicationContext)
         VrnBridge.init(this)
+        VrnJs.init()
         // R-SYSTEMBAR：应用固定深色主题（InkBg/InkBar），与系统明暗设置无关。
         // enableEdgeToEdge() 默认用 SystemBarStyle.auto(...)，会跟随系统明暗切换图标明暗——
         // 系统处于浅色模式时给出深色图标，落在深色顶栏/底栏上不可读（真机反馈：系统栏文字看不清）。
@@ -201,6 +202,75 @@ object Store {
     fun get(key: String, def: String = ""): String = prefs?.getString(key, def) ?: def
     fun set(key: String, value: String) { prefs?.edit()?.putString(key, value)?.apply() }
     fun remove(key: String) { prefs?.edit()?.remove(key)?.apply() }
+}
+
+/**
+ * R95 P1 Android JS 运行时（与 iOS JavaScriptCore 对位）。
+ *
+ * 设计：QuickJS 里跑业务逻辑，结果通过全局对象 __vrnOut 回传给原生——
+ * 不用 Java/JS 互调反射（QuickJS-Android 的反射桥对复杂类型支持有限，且易在混淆后失效）。
+ *
+ *   VrnJs.eval("1+1")                       → "2"
+ *   VrnJs.eval("__vrnOut.chars = countChars(raw)") -> 之后 VrnJs.drain() 取走 {"chars":"12"}
+ *
+ * drain() 会清空 __vrnOut，原生据此批量更新 Compose State。
+ */
+object VrnJs {
+    private var js: app.cash.quickjs.QuickJs? = null
+    private val lock = Any()
+
+    /** 预置宿主 shim：console / localStorage（落 SharedPreferences）/ 输出对象 */
+    private const val PRELUDE = """
+var __vrnOut = {};
+var __vrnStore = {};
+var localStorage = {
+  getItem: function (k) { return __vrnStore[k] === undefined ? null : __vrnStore[k]; },
+  setItem: function (k, v) { __vrnStore[k] = String(v); __vrnOut['__ls:' + k] = String(v); },
+  removeItem: function (k) { delete __vrnStore[k]; __vrnOut['__ls:' + k] = ''; }
+};
+var console = { log: function () {}, warn: function () {}, error: function () {} };
+"""
+
+    fun init() {
+        synchronized(lock) {
+            if (js == null) {
+                js = app.cash.quickjs.QuickJs.create()
+                js?.evaluate(PRELUDE)
+            }
+        }
+    }
+
+    /** 执行一段 JS；返回最后一个表达式的值（字符串化），异常返回 null 并打日志 */
+    fun eval(code: String): String? = synchronized(lock) {
+        val engine = js ?: return null
+        return try {
+            val v = engine.evaluate(code)
+            v?.toString()
+        } catch (e: Throwable) {
+            android.util.Log.w("VrnJs", "eval 失败: " + e.message)
+            null
+        }
+    }
+
+    /** 取走 JS 侧累积的状态变更（JSON 文本），并清空 */
+    fun drain(): String = synchronized(lock) {
+        val engine = js ?: return "{}"
+        val json = try {
+            engine.evaluate("(function(){var s=JSON.stringify(__vrnOut);__vrnOut={};return s;})()")?.toString()
+        } catch (e: Throwable) {
+            null
+        } ?: "{}"
+        json.ifEmpty { "{}" }
+    }
+
+    fun close() = synchronized(lock) {
+        try {
+            js?.close()
+        } catch (e: Throwable) {
+            // 忽略
+        }
+        js = null
+    }
 }
 
 /**
