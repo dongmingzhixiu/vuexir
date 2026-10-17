@@ -1,6 +1,6 @@
 {
   "name": "@dongmingzhixiu/vuexir-compiler",
-  "version": "0.3.15",
+  "version": "0.3.16",
   "description": "Vue SFC → IR → 原生源码（SwiftUI / Compose）编译器核心：纯函数、零 IO",
   "type": "module",
   "license": "MIT",
