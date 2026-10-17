@@ -125,10 +125,15 @@ export function buildTheme(tokens: { colors: Set<string>; fonts: Set<string> }):
 
 /** R42 生成 Theme.swift（颜色/字体去重常量） */
 export const VRN_HELPERS_SWIFT = `import Foundation
+import SwiftUI
 
 // vuexir 运行时辅助（R78 对象字段取值）
 /// R78 对象字段取值：状态里存 JSON 字符串时按 key 取值（非 JSON → 返回空串）
 /// R85 点路径取值：key 支持 "a.b.c" 与末段 ".length"（数组/字典/字符串长度）
+/// R130：状态可能是 @State String 或 @Binding<String>，统一取值
+func vrnStr(_ s: String) -> String { s }
+func vrnStr(_ b: SwiftUI.Binding<String>) -> String { b.wrappedValue }
+
 /// R110 判真：JS 里的 truthiness 近似（空串/"false"/"0"/"null" 为假）
 func vrnTruthy(_ v: String) -> Bool {
     if v.isEmpty { return false }
