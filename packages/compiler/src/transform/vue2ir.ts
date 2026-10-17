@@ -533,6 +533,12 @@ function __vrnSyncPage() {
   try {
     var page = typeof __vrnPage !== "undefined" ? __vrnPage : (typeof globalThis !== "undefined" ? globalThis.__vrnPage : undefined);
     if (!page) return;
+    // R129：页面脚本的函数/常量也提到全局，模板里的 {{ greet() }} 类表达式才能求值
+    for (var fk in page) {
+      try {
+        if (typeof globalThis[fk] === "undefined" && typeof page[fk] === "function") globalThis[fk] = page[fk];
+      } catch (e) {}
+    }
     for (var k in page) {
       try {
         var v = page[k];
