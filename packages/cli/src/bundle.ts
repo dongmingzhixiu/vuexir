@@ -13,7 +13,7 @@ import { join } from 'node:path';
 import { buildSync } from 'esbuild';
 import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { DEXIE_SHIM_SOURCE } from './shims.js';
+import { DEXIE_SHIM_SOURCE, PINIA_SHIM_SOURCE, VUE_SHIM_SOURCE } from './shims.js';
 
 export interface BundleResult {
   /** IIFE 代码（空串表示没有可打包的 util） */
@@ -33,16 +33,25 @@ export function bundleProjectUtils(projectRoot: string): BundleResult {
   const shimDir = mkdtempSync(join(tmpdir(), 'vrn-shim-'));
   const dexieShim = join(shimDir, 'dexie-shim.js');
   writeFileSync(dexieShim, DEXIE_SHIM_SOURCE);
+  const vueShim = join(shimDir, 'vue-shim.js');
+  writeFileSync(vueShim, VUE_SHIM_SOURCE);
+  const piniaShim = join(shimDir, 'pinia-shim.js');
+  writeFileSync(piniaShim, PINIA_SHIM_SOURCE);
 
   const included: string[] = [];
   const skipped: { file: string; reason: string }[] = [];
   const chunks: string[] = [];
 
-  for (const file of readdirSync(utilsDir)) {
+  // stores 也一起打：页面/工具里的 useXxxStore 需要真实实现（pinia shim 顶上）
+  const storesDir = join(projectRoot, 'src', 'stores');
+  const dirs = [utilsDir, storesDir].filter((d) => existsSync(d));
+
+  for (const dir of dirs) {
+  for (const file of readdirSync(dir)) {
     if (!/\.(ts|js|mts)$/.test(file) || file.endsWith('.d.ts')) continue;
     try {
       const out = buildSync({
-        entryPoints: [join(utilsDir, file)],
+        entryPoints: [join(dir, file)],
         bundle: true,
         write: false,
         format: 'iife',
@@ -53,7 +62,12 @@ export function bundleProjectUtils(projectRoot: string): BundleResult {
         // 纯类型导入会被擦除；若确实依赖运行期外部包（dexie 等）则整包失败 → 跳过该文件
         external: [],
         logLevel: 'silent',
-        alias: { '@': join(projectRoot, 'src'), dexie: dexieShim },
+        alias: {
+          '@': join(projectRoot, 'src'),
+          dexie: dexieShim,
+          vue: vueShim,
+          pinia: piniaShim,
+        },
       });
       const code = out.outputFiles?.[0]?.text ?? '';
       if (code) {
@@ -67,6 +81,7 @@ export function bundleProjectUtils(projectRoot: string): BundleResult {
     } catch (e) {
       skipped.push({ file, reason: (e as Error).message.split('\n')[0]?.slice(0, 120) ?? '打包失败' });
     }
+  }
   }
 
   return { code: chunks.join('\n'), included, skipped };

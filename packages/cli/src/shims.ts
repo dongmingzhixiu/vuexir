@@ -73,3 +73,115 @@ export default class Dexie {
   version() { return new Version(this); }
 }
 `;
+
+/**
+ * R100 P4：`vue` 的最小 shim —— 只是为了让 stores/utils 里的 ref/computed 能在
+ * 原生 JS 运行时（JSC/QuickJS）里跑起来，**不是完整响应式系统**：
+ *   · ref(x)      → { value: x }（读写 .value）
+ *   · computed(f) → 惰性求值 + 依赖收集（简单标记失效）
+ *   · reactive(x) → 原样返回（对象引用语义）
+ *   · onMounted   → 收集回调，由宿主在页面挂载后调用
+ *   · watch       → 简单轮询式比较（同一个事件循环 tick 内触发）
+ */
+export const VUE_SHIM_SOURCE = `
+var __vrnMounted = [];
+export function ref(v) {
+  return { __vrnRef: true, value: v };
+}
+export function shallowRef(v) { return ref(v); }
+export function reactive(obj) { return obj; }
+export function readonly(obj) { return obj; }
+export function computed(fn) {
+  var cache;
+  var dirty = true;
+  return {
+    __vrnComputed: true,
+    get value() {
+      if (dirty) { cache = fn(); dirty = false; }
+      return cache;
+    },
+    set value(_v) { dirty = true; },
+    __invalidate: function () { dirty = true; },
+  };
+}
+export function onMounted(fn) { __vrnMounted.push(fn); }
+export function onUnmounted() {}
+export function onBeforeUnmount() {}
+export function watch(source, cb) {
+  var last = typeof source === "function" ? source() : source && source.value;
+  return setInterval(function () {
+    var cur = typeof source === "function" ? source() : source && source.value;
+    if (cur !== last) { var prev = last; last = cur; cb(cur, prev); }
+  }, 16);
+}
+export function nextTick(fn) { return Promise.resolve().then(fn); }
+export function toRefs(obj) {
+  var out = {};
+  Object.keys(obj || {}).forEach(function (k) { out[k] = ref(obj[k]); });
+  return out;
+}
+export function unref(v) { return v && v.__vrnRef ? v.value : v; }
+export function isRef(v) { return !!(v && v.__vrnRef); }
+export function __vrnRunMounted() {
+  var list = __vrnMounted.slice();
+  __vrnMounted.length = 0;
+  list.forEach(function (fn) { try { fn(); } catch (e) {} });
+}
+export default {
+  ref: ref, shallowRef: shallowRef, reactive: reactive, readonly: readonly, computed: computed,
+  onMounted: onMounted, onUnmounted: onUnmounted, onBeforeUnmount: onBeforeUnmount,
+  watch: watch, nextTick: nextTick, toRefs: toRefs, unref: unref, isRef: isRef,
+};
+`;
+
+/**
+ * R100 P4：`pinia` 的最小 shim —— 让 `stores/*.ts` 的 defineStore 能在运行时可加载。
+ * 支持 options 写法（state/getters/actions）与 setup 写法（函数返回 state 与 action）。
+ * 单例语义：同一 id 只创建一次（与 Pinia 一致），跨页面共享。
+ */
+export const PINIA_SHIM_SOURCE = `
+var __vrnStores = {};
+function __vrnBind(store, obj) {
+  Object.keys(obj || {}).forEach(function (k) {
+    var v = obj[k];
+    if (typeof v === "function") store[k] = v.bind(store);
+    else store[k] = v;
+  });
+}
+export function defineStore(id, def) {
+  return function useStore() {
+    if (__vrnStores[id]) return __vrnStores[id];
+    var store = {};
+    if (typeof def === "function") {
+      var ret = def();
+      __vrnBind(store, ret);
+      Object.keys(ret || {}).forEach(function (k) {
+        if (ret[k] && ret[k].__vrnRef) store[k] = ret[k].value;
+      });
+    } else {
+      var state = typeof def.state === "function" ? def.state() : def.state || {};
+      Object.keys(state).forEach(function (k) { store[k] = state[k]; });
+      Object.keys(def.getters || {}).forEach(function (k) {
+        var g = def.getters[k];
+        Object.defineProperty(store, k, {
+          enumerable: true,
+          get: function () { try { return g.call(store, store); } catch (e) { return undefined; } },
+        });
+      });
+      __vrnBind(store, def.actions);
+    }
+    __vrnStores[id] = store;
+    return store;
+  };
+}
+export function createPinia() { return {}; }
+export function storeToRefs(store) {
+  var out = {};
+  Object.keys(store || {}).forEach(function (k) {
+    var v = store[k];
+    if (typeof v !== "function") out[k] = { __vrnRef: true, get value() { return store[k]; }, set value(x) { store[k] = x; } };
+  });
+  return out;
+}
+export default { defineStore: defineStore, createPinia: createPinia, storeToRefs: storeToRefs };
+`;
