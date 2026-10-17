@@ -693,4 +693,19 @@ const ui = useUiStore()</script>
     expect(ui).toContain('"obj":"ui_list","field":"length"');
     expect(r.warnings.some((w) => w.includes('含计算逻辑') && w.includes('R90'))).toBe(true);
   });
+
+  it('R91 模板表达式归一化：可选链与空值兜底', () => {
+    const src = `<template><div class="page">
+      <p class="t">{{ article?.title }}</p>
+      <p class="t">{{ nick || '未命名' }}</p>
+    </div></template>
+<script setup>const article = ref({ title: '赤壁赋' })
+const nick = ref('')</script>
+<style>.page { background: #0b1020; padding: 16px; } .t { font-size: 14px; color: #ffffff; }</style>`;
+    const r = vueToIr(src, { screenId: 'S' });
+    const ui = JSON.stringify(r.screen.ui);
+    expect(ui).toContain('"obj":"article","field":"title"'); // ?. 归一化后按点路径取值
+    expect(ui).toContain('bindExpr'); // || 兜底走三元通道
+    expect(r.warnings.some((w) => w.includes('可选链'))).toBe(true);
+  });
 });

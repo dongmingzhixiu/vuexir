@@ -1240,7 +1240,7 @@ function walk(
     case NodeTypes.INTERPOLATION: {
       const nameRaw = textOf(node.content).trim();
       // R86：store 访问先拍平（ui.dialog.title → ui_dialog.title）；getter/action 返回哨兵
-      const name = flattenStorePath(nameRaw);
+      const name = flattenStorePath(normalizeTemplateExpr(nameRaw, warnings));
       // 组件树模式（propRefs 传入=非空）：{{ 任意名 }} → text ref（Swift Text(prop)，
       // prop 名由组件树实际引用自动收集，不强制 defineProps 声明）
       if (propRefs) {
@@ -1324,6 +1324,24 @@ function parseTernaryExpr(exp: string): string | null {
   const cond = swiftExpr(m[1]);
   if (cond === null) return null;
   return `${cond} ? "${m[2]}" : "${m[3]}"`;
+}
+
+/**
+ * R91 模板表达式归一化（在成员链/状态判定之前统一处理）：
+ *  ① 可选链 `a?.b` → `a.b`（原生端 vrnField 对缺失键返回空串，近似等价；仅提示一次）；
+ *  ② 空值兜底 `a || 'x'` / `a ?? 'x'`（a 为纯状态名）→ `a ? 'x' : 'x'` 交给三元通道。
+ * 其余形态（方法调用、字符串方法、模板字面量）不在此处理，按原逻辑报错。
+ */
+function normalizeTemplateExpr(name: string, warnings: string[]): string {
+  let out = name;
+  if (out.includes('?.')) {
+    out = out.replace(/\?\./g, '.');
+    const msg = `模板可选链「${name}」已归一化为「${out}」——原生端字段缺失时返回空串（近似 null 安全，R91）`;
+    if (!warnings.includes(msg)) warnings.push(msg);
+  }
+  const fb = out.match(/^([A-Za-z_$][\w$]*)\s*(?:\|\||\?\?)\s*'([^']*)'$/);
+  if (fb) out = `${fb[1]} ? '${fb[2]}' : '${fb[1]}'`;
+  return out;
 }
 
 /** M2 v-for 循环作用域（v-for 项模板内 item/index 变量可见） */
@@ -1763,7 +1781,7 @@ function walkElement(
         text += child.content;
         parts.push({ text: child.content });
       } else if (child.type === NodeTypes.INTERPOLATION) {
-        const name = flattenStorePath(textOf(child.content).trim());
+        const name = flattenStorePath(normalizeTemplateExpr(textOf(child.content).trim(), warnings));
         // 动态列表项属性 {{ item.field }}：基名（dot[0]）命中循环变量才成立
         const dot = name.split('.');
         const base = dot[0];

@@ -241,3 +241,50 @@ Home / Detail / AllList / Add / Calendar / **Discover**（发现列表 → 跳�
 | ⚠️ 视觉确认 | toast 叠加层在 1 秒快照中 OCR 未捕获（可能时序或叠加层布局），**需真人看一眼真机/模拟器**；机制链路已由日志与产物证明 |
 
 **待发布**：`VRN_BRIDGE_SWIFT` 在 templates 包（需发 0.2.0），编译器侧 R81 翻译在 compiler/cli（需发 patch）
+
+---
+
+## 第 19 轮回归快照（R82–R91 交付状态）
+
+### 硬门槛（本轮实测）
+
+| 门槛 | 结果 |
+| --- | --- |
+| `vue-tsc --noEmit` | **0 error** |
+| `vitest run` | **157/157 通过**（7 个测试文件） |
+| iOS `xcodebuild` | **BUILD SUCCEEDED**（iPhone 17 模拟器装机成功） |
+| Android `gradle assembleDebug` | **BUILD SUCCESSFUL** |
+| 浏览器预览（`preview/` + Chrome headless） | **DOM 38.7 KB 正常渲染，无 error overlay**；`/__vrn/screens` 返回两个样例 |
+| 插件预览 `/__vrn/` | 上一轮已验：一行 `vrn()` 即得手机壳页（Chrome headless 读到真实页面文本） |
+
+### 运行时能力实测（不是"看代码觉得对"）
+
+- **原生桥（R81/R84）**：模拟器剪贴板 `sentinel-before-launch` → **`vrn-bridge-ok`**，证明 `bridge.copy` → `__nativeCopy` → `VrnBridge.copy` 整链通；toast 由 OCR 读到「原生桥已接通」
+- **store 读取（R86）**：`StoreDemo.vue` 读真实 `src/stores/ui.ts` → OCR 读到「皮肤 **warm**」
+- **store 写回（R87）**：`onMounted → ui.setSkin('night')` → OCR 读到「皮肤 **night**」，原生 `@State` 被 JS action 改写
+- **点路径（R85）**：OCR 读到「R85·10 月·2」（嵌套路径 + 字符串长度）
+- **浅色状态栏（R-CHROME）**：深色图标像素 599 → 742
+
+### 已落地规则一览（本轮系列）
+
+R82 打包卫生 · R83 预览器随插件发布 · R84 原生桥四能力 · R85 对象态与点路径 · R86 store 状态折叠 · R87 store action 折叠 · R88 v-for 数据源扩展 · R89 computed/常量折叠 · R90 getter 降级 · R91 可选链与空值兜底
+
+### birthday-app 13 个真实页面：编译通过率 1/13
+
+| 页面 | 状态 | 首个阻塞点 |
+| --- | --- | --- |
+| SettingsView | ✅ 整页通过 | — |
+| AllListView | ✗ | `{{ all.length }}`（getter 含计算，降级后仍缺 computed 求值） |
+| CalendarView | ✗ | `v-for="c in cells"`（computed 调用外部函数 `buildMonthGrid`） |
+| GrowthView | ✗ | `v-for="s in stats"`（同上） |
+| DiscoverView | ✗ | `{{ soonCount }}`（computed → getter → 计算链） |
+| ImportView | ✗ | `{{ chars }}`（`countChars(raw)` 外部函数） |
+| HomeView | ✗ | `{{ greet() }}`（模板内方法调用） |
+| FlashView | ✗ | `{{ String(Math.min(...)).padStart(2,'0') }}`（字符串方法链） |
+| AddBirthdayView | ✗ | `{{ form.name.slice(0,1) \|\| '+' }}`（字符串方法 + 兜底） |
+| DetailView | ✗ | `{{ item.avatarData ? '' : item.avatarChar }}`（v-for 项内三元） |
+| MapView | ✗ | `{{ article ? \`${article.title} · 航线图\` : '航线图' }}`（模板字面量三元） |
+| ReadView | ✗ | `{{ article.title ?? '阅读' }}`（点路径上的空值兜底） |
+| QuizView | ✗ | `<InkDrops>` 自定义组件标签 |
+
+**下一轮（20/20）建议优先级**：① 点路径 `??` 兜底（改 `vrnField` 加 fallback 参数，两端各一处）；② v-for 项内三元（`item.x ? '' : item.y` → dynField 三元）；③ 模板字面量三元（`` `${a.b} · 字` `` 归一化为 bindParts）。这三项能再解锁 3–4 个页面。
