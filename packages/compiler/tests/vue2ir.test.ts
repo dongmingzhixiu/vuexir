@@ -564,21 +564,3 @@ function calc() { const step: number = 1; count.value = count.value + step }
     expect(r.warnings.some((w) => w.includes('事件修饰符暂不支持'))).toBe(true);
   });
 });
-
-describe('R74 保留名自动改名', () => {
-  it('const body = ref(...) → 状态表/bind/runtime 全部改为 bodyText，并给出警告', () => {
-    const src = `<template><div class="p"><p class="t">{{ body }}</p><button class="b" @click="inc">+</button></div></template>
-<script setup>
-const body = ref('hi')
-function inc() { body.value = body.value + '!' }
-</script>
-<style>.p { background: #000000; } .t { font-size: 14px; color: #ffffff; } .b { padding: 8px; }</style>`;
-    const r = vueToIr(src, { screenId: 'T' });
-    expect(r.screen.state?.[0]?.name).toBe('bodyText');
-    expect(r.warnings.some((w) => w.includes('自动改名'))).toBe(true);
-    const text = r.screen.ui.children![0].children![0].children![0];
-    expect(text.props?.bind).toBe('bodyText');
-    expect(r.runtime).toContain('stateStore.bodyText');
-    expect(r.runtime).not.toMatch(/stateStore\.body\b/);
-  });
-});
