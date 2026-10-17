@@ -65,6 +65,9 @@ let storeAliases: Map<string, StoreDef> = new Map();
 
 /** R86 把 `alias.field.path` 拍平为 `alias_field.path`；getter/action 返回哨兵串 */
 function flattenStorePath(name: string): string {
+  // R123：页面脚本自己的响应式绑定（soon/nearest/…）由运行时同步填充，
+  // 绝不能再被 store 折叠改写成 store_xxx（否则 v-for 会去读静态状态，永远是空）
+  if (jsExprStateNames.includes(name)) return name;
   // R89：computed 折叠出的派生名（all → ui_upcoming；all.length → ui_upcoming.length）
   if (derivedNames.size > 0) {
     const m0 = name.match(/^([A-Za-z_$][\w$]*)(\..+)?$/);
