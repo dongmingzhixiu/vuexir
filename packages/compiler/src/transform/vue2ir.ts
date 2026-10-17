@@ -2256,6 +2256,15 @@ function walkElement(
           continue;
         }
         if (child.type === NodeTypes.ELEMENT) {
+          // R137：<button><span>{{ x }}</span></button> → 动态文案走 bind（此前只能收静态文本）
+          const interp = (child.children ?? []).find((cc) => cc.type === NodeTypes.INTERPOLATION);
+          if (interp && !props.bind && !props.label) {
+            const raw = textOf(interp.content).trim();
+            if (raw && !/['"]/.test(raw)) {
+              props.bind = addJsExprState(raw);
+              continue;
+            }
+          }
           // 常见写法兜底：<button><span>文字</span></button> → 内联文本并入 label（否则 IR 校验因缺 label 中断）
           const inner = elementInnerText(child).trim();
           if (inner) {
