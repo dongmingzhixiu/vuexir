@@ -161,7 +161,12 @@ const RUNTIME_KT = (bundleId: string) => `package ${bundleId}
 /** R73 持久化桥：对位 iOS runtime 的 localStorage（UserDefaults）—— SharedPreferences 同步读写 */
 /** R78 对象字段取值：状态里存 JSON 字符串时按 key 取值 */
 // R85 点路径取值：path 支持 "a.b.c"，末段可为 length/size（数组/对象/字符串长度）
-fun vrnField(json: String, path: String): String {
+fun vrnField(json: String, path: String, fallback: String = ""): String {
+    val raw = vrnFieldRaw(json, path)
+    return if (raw.isEmpty()) fallback else raw
+}
+
+fun vrnFieldRaw(json: String, path: String): String {
     return try {
         var cur: Any = org.json.JSONTokener(json).nextValue()
         for (seg in path.split(".")) {
@@ -999,13 +1004,29 @@ function emitNodeInner(node: IrNode, ctx: ComposeCtx, depth: number, loop?: { it
           .map((seg): string => {
             if ('text' in seg) return String(seg.text).replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/\$/g, '${\'$\'}').replace(/\n/g, '\\n');
             if ('bind' in seg) return '${' + loopField(seg.bind, loop) + '}';
-            if ('fieldOf' in seg) return '${vrnField(' + seg.fieldOf.obj + ', "' + seg.fieldOf.field + '")}';
+            if ('fieldOf' in seg)
+              return (
+                '${vrnField(' +
+                seg.fieldOf.obj +
+                ', "' +
+                seg.fieldOf.field +
+                '"' +
+                (seg.fieldOf.fallback !== undefined ? ', "' + seg.fieldOf.fallback.replace(/"/g, '\\"') + '"' : '') +
+                ')}'
+              );
             return '${' + loopField(seg.dynField.var, loop) + '["' + seg.dynField.field + '"] ?: ""}';
           })
           .join('');
         textExpr = '"' + segs + '"';
       } else if (p.fieldOf) {
-        textExpr = '"${vrnField(' + p.fieldOf.obj + ', "' + p.fieldOf.field + '")}"';
+        textExpr =
+          '"${vrnField(' +
+          p.fieldOf.obj +
+          ', "' +
+          p.fieldOf.field +
+          '"' +
+          (p.fieldOf.fallback !== undefined ? ', "' + p.fieldOf.fallback.replace(/"/g, '\\"') + '"' : '') +
+          ')}"';
       } else if (p.dynField) {
         textExpr = '"${' + loopField(p.dynField.var, loop) + '["' + p.dynField.field + '"] ?: ""}"';
       } else if (p.bindExpr !== undefined) {

@@ -69,9 +69,10 @@ export interface IrProps {
   /** M4b 动态列表项属性：{{ item.field }} → Swift [String: Any] 字段取值 */
   dynField?: { var: string; field: string };
   /** R78 对象字段插值：{{ obj.field }}（obj 为 JSON 字符串状态；非状态对象编译期警告） */
-  fieldOf?: { obj: string; field: string };
+  /** R92 对象字段取值；fallback 为缺失时的兜底文案（对应 `{{ a.b ?? '兜底' }}`） */
+  fieldOf?: { obj: string; field: string; fallback?: string };
   /** M4b 混合文本：静态段 + 插值/动态字段段 → Text("\(bind)静态\(dyn)") */
-  bindParts?: ({ text: string } | { bind: string } | { dynField: { var: string; field: string } } | { fieldOf: { obj: string; field: string } })[];
+  bindParts?: ({ text: string } | { bind: string } | { dynField: { var: string; field: string } } | { fieldOf: { obj: string; field: string; fallback?: string } })[];
   /** group 专属 */
   flexDirection?: FlexDirection;
   justifyContent?: Justify;

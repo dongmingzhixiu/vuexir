@@ -127,7 +127,13 @@ export const VRN_HELPERS_SWIFT = `import Foundation
 // vuexir 运行时辅助（R78 对象字段取值）
 /// R78 对象字段取值：状态里存 JSON 字符串时按 key 取值（非 JSON → 返回空串）
 /// R85 点路径取值：key 支持 "a.b.c" 与末段 ".length"（数组/字典/字符串长度）
-func vrnField(_ json: String, _ path: String) -> String {
+func vrnField(_ json: String, _ path: String, _ fallback: String = "") -> String {
+    let raw = vrnFieldRaw(json, path)
+    return raw.isEmpty ? fallback : raw
+}
+
+/// 原始取值（不套兜底）：点路径下钻，缺失返回空串
+private func vrnFieldRaw(_ json: String, _ path: String) -> String {
     guard let data = json.data(using: .utf8),
           let root = try? JSONSerialization.jsonObject(with: data, options: [.fragmentsAllowed]) else { return "" }
     var cur: Any = root
@@ -764,7 +770,11 @@ function emitNodeInner(node: IrNode, ctx: Ctx): string {
         : props.bindExpr !== undefined
           ? pad(`Text(${props.bindExpr})`)
           : props.fieldOf !== undefined
-            ? pad(`Text(vrnField(${props.fieldOf.obj}, "${props.fieldOf.field}"))`)
+            ? pad(
+                `Text(vrnField(${props.fieldOf.obj}, "${props.fieldOf.field}"${
+                  props.fieldOf.fallback !== undefined ? `, "${swiftStringEscape(props.fieldOf.fallback)}"` : ''
+                }))`,
+              )
             : props.dynField !== undefined
             ? pad(`Text(${dictFieldExpr(props.dynField.var, props.dynField.field)})`)
             : props.bindParts !== undefined
@@ -776,7 +786,9 @@ function emitNodeInner(node: IrNode, ctx: Ctx): string {
                         : 'bind' in p
                           ? `\\(${p.bind})`
                           : 'fieldOf' in p
-                            ? `\\(vrnField(${p.fieldOf.obj}, "${p.fieldOf.field}"))`
+                            ? `\\(vrnField(${p.fieldOf.obj}, "${p.fieldOf.field}"${
+                                p.fieldOf.fallback !== undefined ? `, "${swiftStringEscape(p.fieldOf.fallback)}"` : ''
+                              }))`
                             : `\\(${dictFieldExpr(p.dynField.var, p.dynField.field)})`,
                     )
                     .join('')}")`,

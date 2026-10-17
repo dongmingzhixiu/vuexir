@@ -35,6 +35,18 @@ describe('R85 对象态点路径取值', () => {
   });
 });
 
+describe('R92 点路径兜底产物', () => {
+  it('fieldOf 带 fallback 时生成 vrnField 三参调用', () => {
+    const src = `<template><div class="page"><p class="t">{{ card.title ?? '未命名' }}</p></div></template>
+<script setup>const card = ref({ title: '' })</script>
+<style>.page { background: #0b1020; } .t { font-size: 14px; color: #ffffff; }</style>`;
+    const { screen } = vueToIr(src, { screenId: 'CardCase' });
+    expect(validateIr(screen).ok).toBe(true);
+    const swift = generateScreenSource(screen, { theme: buildTheme(collectTheme(screen.ui)) });
+    expect(swift).toContain('vrnField(card, "title", "未命名")');
+  });
+});
+
 describe('R74 保留名自动重命名（产物断言）', () => {
   it('模板中名为 body 的状态生成 bodyText，且 SwiftUI 结构合法', () => {
     const src = `<template><div class="page"><p class="t">{{ body }}</p></div></template>

@@ -1279,6 +1279,17 @@ function walk(
           `插值 {{ ${name} }}：未在 <script setup> 中声明为 ref 状态（M1 白名单：仅支持已声明状态）`,
         );
       }
+      // R92 点路径兜底：{{ a.b ?? '默认' }} → fieldOf + fallback
+      {
+        const fbm = name.match(/^@@fb@@([^@]+)@@([\s\S]*)$/);
+        if (fbm) {
+          // 内部路径可能仍是 store 别名/computed 派生名 → 先拍平
+          const p2 = matchFieldPath(flattenStorePath(fbm[1]));
+          if (p2 && (state?.states ?? []).some((st) => st.name === p2.obj)) {
+            return [{ type: 'text', props: { fieldOf: { obj: p2.obj, field: p2.field, fallback: fbm[2] } } }];
+          }
+        }
+      }
       // R78/R85 对象字段插值 {{ obj.field }} / {{ obj.a.b }} / {{ obj.list.length }}：
       // obj 是页面状态 → 运行时按点路径取值；否则明确警告 + 空文本降级
       {
@@ -1340,7 +1351,10 @@ function normalizeTemplateExpr(name: string, warnings: string[]): string {
     if (!warnings.includes(msg)) warnings.push(msg);
   }
   const fb = out.match(/^([A-Za-z_$][\w$]*)\s*(?:\|\||\?\?)\s*'([^']*)'$/);
-  if (fb) out = `${fb[1]} ? '${fb[2]}' : '${fb[1]}'`;
+  if (fb) return `${fb[1]} ? '${fb[2]}' : '${fb[1]}'`;
+  // R92 点路径上的兜底：`a.b ?? '默认'` / `a.b.c || '默认'`（原生端 vrnField 带 fallback）
+  const fb2 = out.match(/^([A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)+)\s*(?:\|\||\?\?)\s*'([^']*)'$/);
+  if (fb2) return `@@fb@@${fb2[1]}@@${fb2[2]}`;
   return out;
 }
 
@@ -1775,7 +1789,12 @@ function walkElement(
     let refOnly: string | undefined;
     let exprOnly: string | undefined;
     // M4b：混合文本（静态 + 插值/动态字段）→ bindParts 分段拼接（Text("\(bind)静态\(dyn)"）
-    const parts: ({ text: string } | { bind: string } | { dynField: { var: string; field: string } } | { fieldOf: { obj: string; field: string } })[] = [];
+    const parts: (
+      | { text: string }
+      | { bind: string }
+      | { dynField: { var: string; field: string } }
+      | { fieldOf: { obj: string; field: string; fallback?: string } }
+    )[] = [];
     for (const child of node.children) {
       if (child.type === NodeTypes.TEXT) {
         text += child.content;
@@ -1823,6 +1842,17 @@ function walkElement(
               );
             }
             continue;
+          }
+          // R92 点路径兜底（元素文本分支）
+          {
+            const fbm2 = name.match(/^@@fb@@([^@]+)@@([\s\S]*)$/);
+            if (fbm2) {
+              const p3 = matchFieldPath(flattenStorePath(fbm2[1]));
+              if (p3 && (state?.states ?? []).some((st) => st.name === p3.obj)) {
+                parts.push({ fieldOf: { obj: p3.obj, field: p3.field, fallback: fbm2[2] } });
+                continue;
+              }
+            }
           }
           // R78/R85 对象字段插值 {{ obj.field }} / {{ obj.a.b }} / {{ obj.list.length }}（单插值）
           const fld2 = matchFieldPath(name);

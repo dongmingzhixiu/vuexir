@@ -708,4 +708,19 @@ const nick = ref('')</script>
     expect(ui).toContain('bindExpr'); // || 兜底走三元通道
     expect(r.warnings.some((w) => w.includes('可选链'))).toBe(true);
   });
+
+  it('R92 点路径兜底：{{ a.b ?? \'默认\' }} → fieldOf 带 fallback（两端 vrnField 第三参）', () => {
+    const src = `<template><div class="page">
+      <p class="t">{{ card.title ?? '未命名' }}</p>
+      <p class="t">{{ card.sub || '暂无' }}</p>
+    </div></template>
+<script setup>const card = ref({ title: '', sub: '' })</script>
+<style>.page { background: #0b1020; padding: 16px; } .t { font-size: 14px; color: #ffffff; }</style>`;
+    const r = vueToIr(src, { screenId: 'S' });
+    const ui = JSON.stringify(r.screen.ui);
+    expect(ui).toContain('"fallback":"未命名"');
+    expect(ui).toContain('"fallback":"暂无"');
+    expect(validateIr(r.screen).ok).toBe(true);
+    // 产物级验证放在 codegen.swiftui.test.ts（本文件只做转换层断言）
+  });
 });
