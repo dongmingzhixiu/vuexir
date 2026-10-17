@@ -2256,12 +2256,24 @@ function walkElement(
           continue;
         }
         if (child.type === NodeTypes.ELEMENT) {
-          // R137：<button><span>{{ x }}</span></button> → 动态文案走 bind（此前只能收静态文本）
-          const interp = (child.children ?? []).find((cc) => cc.type === NodeTypes.INTERPOLATION);
-          if (interp && !props.bind && !props.label) {
-            const raw = textOf(interp.content).trim();
-            if (raw && !/['"]/.test(raw)) {
-              props.bind = addJsExprState(raw);
+          // R137/R138：<button><span>{{ a }}</span><span>{{ b }}</span></button>
+          // → 把所有动态段拼成一句文案（此前只收静态文本，或只取第一段）
+          if (!props.bind && !props.label) {
+            const names: string[] = [];
+            const collect = (el: typeof child): void => {
+              for (const cc of (el as { children?: unknown[] }).children ?? []) {
+                const node2 = cc as { type: number; content?: unknown; children?: unknown[] };
+                if (node2.type === NodeTypes.INTERPOLATION) {
+                  const raw = textOf(node2.content).trim();
+                  if (raw && !/['"]/.test(raw)) names.push(raw);
+                } else if (node2.children) {
+                  collect(node2 as typeof child);
+                }
+              }
+            };
+            collect(child);
+            if (names.length > 0) {
+              props.bind = addJsExprState(names.length === 1 ? names[0] : names.map((n) => `(${n})`).join(` + " · " + `));
               continue;
             }
           }
