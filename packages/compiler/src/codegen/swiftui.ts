@@ -543,6 +543,14 @@ function swiftCondExpr(expr: string): string {
   if (neg) return `${neg[1]}.count == 0`;
   // R110：数值状态直接当条件（Swift 不接受 Int 当 Bool）
   if (/^[A-Za-z_$][\w$]*$/.test(s)) return `vrnTruthy(String(${s}))`;
+  // R113：对象字段条件（form.avatarData）→ 走 vrnField 取 JSON 字段
+  const negField = s.match(/^!([A-Za-z_$][\w$]*)\.([A-Za-z_$][\w$]*)$/);
+  if (negField) return `vrnField(${negField[1]}, "${negField[2]}").isEmpty`;
+  const posField = s.match(/^([A-Za-z_$][\w$]*)\.([A-Za-z_$][\w$]*)$/);
+  if (posField) return `!vrnField(${posField[1]}, "${posField[2]}").isEmpty`;
+  // R113：对象字段比较（form.calendar == "gregorian"）→ vrnField 取值后比较
+  const cmpField = s.match(/^([A-Za-z_$][\w$]*)\.([A-Za-z_$][\w$]*)\s*(==|!=)\s*(.+)$/);
+  if (cmpField) return `vrnField(${cmpField[1]}, "${cmpField[2]}") ${cmpField[3]} ${cmpField[4]}`;
   // R110：裸标识符条件（状态可能是字符串/对象/布尔）→ 统一走判真
   if (/^[A-Za-z_$][\w$]*$/.test(s) && !['true', 'false'].includes(s)) return `vrnTruthy(String(${s}))`;
   // R112：循环项字段的 && 组合（item && item.cd）→ 判真

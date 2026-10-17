@@ -452,6 +452,19 @@ function kotlinCondExpr(expr: string): string {
   if (f) return `vrnField(${f[1]}, "${f[2]}").isNotEmpty()`;
   let s = expr.replace(/!==/g, '!=').replace(/===/g, '==');
   s = s.replace(/'(\\[^]|[^'\\])*'/g, (m) => '"' + m.slice(1, -1).replace(/"/g, '\\"') + '"');
+  // R113：对象字段条件 → vrnField 取值判空
+  const negField = s.match(/^!([A-Za-z_$][\w$]*)\.([A-Za-z_$][\w$]*)$/);
+  if (negField) return `vrnField(${negField[1]}, "${negField[2]}").isEmpty()`;
+  const posField = s.match(/^([A-Za-z_$][\w$]*)\.([A-Za-z_$][\w$]*)$/);
+  if (posField) return `vrnField(${posField[1]}, "${posField[2]}").isNotEmpty()`;
+  const cmpField = s.match(/^([A-Za-z_$][\w$]*)\.([A-Za-z_$][\w$]*)\s*(==|!=)\s*(.+)$/);
+  if (cmpField) return `vrnField(${cmpField[1]}, "${cmpField[2]}") ${cmpField[3]} ${cmpField[4]}`;
+  const andExpr = s.match(/^([A-Za-z_$][\w$.]*)\s*&&\s*([A-Za-z_$][\w$.]*)$/);
+  if (andExpr) {
+    const truthy = (v: string) =>
+      v.includes('.') ? `vrnField(${v.split('.')[0]}, "${v.split('.').slice(1).join('.')}").isNotEmpty()` : `${v}.toString().isNotEmpty()`;
+    return `${truthy(andExpr[1])} && ${truthy(andExpr[2])}`;
+  }
   // R111：Kotlin 不接受 String/Int 当条件 → 统一判真
   const neg = s.match(/^!([A-Za-z_$][\w$]*)(?:\.length)?$/);
   if (neg) return `vrnTruthy(${neg[1]}.toString()).not()`;
@@ -462,7 +475,8 @@ function kotlinCondExpr(expr: string): string {
 
 /** Swift 风格字符串表达式 → Kotlin（三元 c ? a : b → if (c) a else b；引号归一双引号） */
 function kotlinStringExpr(expr: string): string {
-  let s = expr.replace(/'(\\[^]|[^'\\])*'/g, (m) => '"' + m.slice(1, -1).replace(/"/g, '\\"') + '"');
+  let s0 = expr.replace(/vrnTruthy\(String\(([A-Za-z_$][\w$]*)\)\)/g, (_m, id: string) => `vrnTruthy(${id}.toString())`);
+  let s = s0.replace(/'(\\[^]|[^'\\])*'/g, (m) => '"' + m.slice(1, -1).replace(/"/g, '\\"') + '"');
   const ternary = s.match(/^([^?]+)\?([^:]+):(.+)$/);
   if (ternary) {
     return `if (${ternary[1].trim()}) ${ternary[2].trim()} else ${ternary[3].trim()}`;
@@ -1171,7 +1185,7 @@ function emitNodeInner(node: IrNode, ctx: ComposeCtx, depth: number, loop?: { it
     case 'button': {
       const chain = modChain([...stretchModifiers(parentStretch, node), ...sizeModifiers(p), ...absModifiers(p), ...clipModifiers(p), ...visualModifiers(p), ...borderModifiers(p), ...paddingModifiers(p), ...alphaArr, ...transformModifiers(p)], pad + '            ');
       // R108：动态按钮文案（props.bind）优先；Kotlin 里用字符串模板插值
-      const label = p.bind !== undefined ? '"${' + String(p.bind) + '}"' : (p.label ?? '');
+      const label = p.bind !== undefined ? String(p.bind) : (p.label ?? '');
       const click = kotlinClickAction(p, ctx, loop);
       const labelStyle: string[] = [];
       if (p.fontSize !== undefined) labelStyle.push('fontSize = ' + sp(p.fontSize));

@@ -1465,6 +1465,9 @@ function matchFieldPath(name: string): { obj: string; field: string } | null {
 
 function parseTernaryExpr(exp: string): string | null {
   const t = exp.trim();
+  // R113：三元里出现对象字段访问（form.avatarData）时，静态翻译做不到 →
+  // 直接返回 null，交给表达式下沉在 JS 运行时求值（结果一致且两端都能用）
+  if (/[A-Za-z_$][\w$]*\.[A-Za-z_$][\w$]*/.test(t)) return null;
   const m = t.match(/^(.+?)\s*\?\s*'([^']+)'\s*:\s*'([^']+)'$/);
   if (!m) return null;
   let cond = swiftExpr(m[1]);
