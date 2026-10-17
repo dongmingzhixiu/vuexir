@@ -488,6 +488,13 @@ function kotlinCondExpr(expr: string, ctx?: ComposeCtx, loop?: { itemKey: string
   if (posField) return `vrnField(${posField[1]}, "${posField[2]}").isNotEmpty()`;
   const cmpField = s.match(/^([A-Za-z_$][\w$]*)\.([A-Za-z_$][\w$]*)\s*(==|!=)\s*(.+)$/);
   if (cmpField) return `vrnField(${cmpField[1]}, "${cmpField[2]}") ${cmpField[3]} ${cmpField[4]}`;
+  // R121：复合条件逐段翻译
+  if (/&&|\|\|/.test(s) && !/[()]/.test(s)) {
+    const parts = s.split(/(&&|\|\|)/);
+    return parts
+      .map((seg) => (seg === '&&' || seg === '||' ? seg : kotlinCondExpr(seg.trim(), ctx, loop)))
+      .join(' ');
+  }
   const andExpr = s.match(/^([A-Za-z_$][\w$.]*)\s*&&\s*([A-Za-z_$][\w$.]*)$/);
   if (andExpr) {
     const truthy = (v: string) =>

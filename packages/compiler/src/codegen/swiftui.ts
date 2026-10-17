@@ -559,6 +559,14 @@ function swiftCondExpr(expr: string, known?: Set<string>): string {
   if (neg) return `${neg[1]}.count == 0`;
   // R110：数值状态直接当条件（Swift 不接受 Int 当 Bool）
   if (/^[A-Za-z_$][\w$]*$/.test(s)) return `vrnTruthy(String(${s}))`;
+  // R121：复合条件（a && b / a || b / !a）→ 逐段翻译后重组（每段按单条件规则判真）
+  if (/&&|\|\|/.test(s) && !/__vrnField__/.test(s) && !/[()]/.test(s)) {
+    const parts = s.split(/(&&|\|\|)/);
+    return parts
+      .map((seg) => (seg === '&&' || seg === '||' ? seg : swiftCondExpr(seg.trim(), known)))
+      .join(' ');
+  }
+  if (/^![A-Za-z_$][\w$]*$/.test(s)) return `!vrnTruthy(String(${s.slice(1)}))`;
   // R113：对象字段条件（form.avatarData）→ 走 vrnField 取 JSON 字段
   const negField = s.match(/^!([A-Za-z_$][\w$]*)\.([A-Za-z_$][\w$]*)$/);
   if (negField) return `vrnField(${negField[1]}, "${negField[2]}").isEmpty`;

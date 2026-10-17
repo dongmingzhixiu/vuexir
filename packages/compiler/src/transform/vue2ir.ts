@@ -352,8 +352,9 @@ __vrnRecompute();
 (function () {
   var __n = 0;
   function __tick() {
-    __vrnSyncPage();
     __vrnRecompute();
+    // R122：页面脚本（__vrnPage）的真实值必须最后写入，否则会被静态 computed 覆盖成空
+    __vrnSyncPage();
     if (++__n < 20 && typeof setTimeout === "function") setTimeout(__tick, 100);
   }
   __tick();
@@ -507,6 +508,21 @@ var router = {
 };
 // R118 页面状态同步：把页面脚本 bundle（__vrnPage）里的 ref/computed 值写进 stateStore，
 // 模板里 {{ nearest }} / {{ soon }} 这类页面级派生值就有了真实来源
+// 把数组里的嵌套对象拍平成「点键」，让 v-for 里的 row.item.name 能直接取到
+function __vrnFlat(v) {
+  function flatObj(o, prefix, out) {
+    for (var k in o) {
+      var val = o[k];
+      var key = prefix ? prefix + "." + k : k;
+      if (val && typeof val === "object" && !Array.isArray(val)) flatObj(val, key, out);
+      else if (Array.isArray(val)) out[key] = "[" + val.length + "]";
+      else out[key] = String(val);
+    }
+    return out;
+  }
+  if (Array.isArray(v)) return v.map(function (it) { return (it && typeof it === "object") ? flatObj(it, "", {}) : it; });
+  return v;
+}
 function __vrnSyncPage() {
   try {
     var page = typeof __vrnPage !== "undefined" ? __vrnPage : (typeof globalThis !== "undefined" ? globalThis.__vrnPage : undefined);
@@ -518,7 +534,7 @@ function __vrnSyncPage() {
         if (v && typeof v === "object" && "value" in v) val = v.value;   // ref / computed
         else continue;                                                    // 函数/常量交给模板静态值
         if (val === undefined || val === null) continue;
-        stateStore[k] = (typeof val === "object") ? JSON.stringify(val) : val;
+        stateStore[k] = (typeof val === "object") ? JSON.stringify(__vrnFlat(val)) : val;
       } catch (e) {}
     }
   } catch (e) {}
@@ -1194,6 +1210,21 @@ export function vueToIr(source: string, opts: Vue2IrOptions = {}): Vue2IrResult 
         value = raw.slice(1, -1);
       }
       if (value !== undefined) stateInfo.states.push({ name, init: value });
+    }
+    // R121：页面脚本里的 computed/普通绑定在运行时由 __vrnSyncPage 回填，
+    // 这里先注册为状态（init 空串），模板的 v-for / v-if 就能引用它们
+    {
+      const RESERVED2 = new Set(['body', 'self', 'init', 'class', 'object', 'fun', 'val', 'var', 'when', 'is', 'in', 'store']);
+      // 只注册 computed/ref/reactive 绑定（普通常量数组已由代码生成侧处理，重复注册会撞名）
+      const reactiveBindings = new Set<string>();
+      for (const m2 of src.matchAll(/const\s+([A-Za-z_$][\w$]*)\s*=\s*(?:computed|ref|reactive|shallowRef|toRef)\s*\(/g)) {
+        reactiveBindings.add(m2[1]);
+      }
+      for (const nm of reactiveBindings) {
+        if (RESERVED2.has(nm)) continue;
+        if (stateInfo.states.some((st) => st.name === nm)) continue;
+        stateInfo.states.push({ name: nm, init: '' });
+      }
     }
     // R98：把当前状态名快照给表达式下沉用（walk 阶段据此把裸状态名重写成 stateStore.x）
     jsExprStateNames = stateInfo.states.map((st) => st.name);
@@ -2061,7 +2092,7 @@ function walkElement(
         const base = dot[0];
         const loopVar = loopScope.find((l) => l.itemKey === base || l.indexKey === base);
         const dyn =
-          loopVar && dot.length === 2 && dot[0] === loopVar.itemKey && /^\w+$/.test(dot[1]);
+          loopVar && dot.length >= 2 && dot[0] === loopVar.itemKey && dot.slice(1).every((seg) => /^\w+$/.test(seg));
         if (!text && !parts.some((p) => 'bind' in p || 'dynField' in p || 'fieldOf' in p)) {
           // M2 模板内三元（D1 小范围）：cond ? 'a' : 'b' → Swift 三元字符串表达式（Text(expr)）
           const tri = parseTernaryExpr(name);
@@ -2071,7 +2102,7 @@ function walkElement(
           }
           // M4b 单插值动态列表项属性 {{ item.field }} → 单段 bindParts
           if (dyn) {
-            parts.push({ dynField: { var: dot[0], field: dot[1] } });
+            parts.push({ dynField: { var: dot[0], field: dot.slice(1).join('.') } });
             continue;
           }
           if (name.startsWith('\u0000store:')) {
