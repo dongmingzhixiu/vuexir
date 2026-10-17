@@ -101,6 +101,7 @@ import androidx.activity.enableEdgeToEdge
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        Store.init(applicationContext)
         // R-SYSTEMBAR：应用固定深色主题（InkBg/InkBar），与系统明暗设置无关。
         // enableEdgeToEdge() 默认用 SystemBarStyle.auto(...)，会跟随系统明暗切换图标明暗——
         // 系统处于浅色模式时给出深色图标，落在深色顶栏/底栏上不可读（真机反馈：系统栏文字看不清）。
@@ -156,6 +157,17 @@ fun VuexirTheme(content: @Composable () -> Unit) {
 const RUNTIME_KT = (bundleId: string) => `package ${bundleId}
 
 // Vuexir Android 运行时桥（对位 iOS RUNTIME_SWIFT）
+/** R73 持久化桥：对位 iOS runtime 的 localStorage（UserDefaults）—— SharedPreferences 同步读写 */
+object Store {
+    private var prefs: android.content.SharedPreferences? = null
+    fun init(ctx: android.content.Context) {
+        if (prefs == null) prefs = ctx.getSharedPreferences("vrn", android.content.Context.MODE_PRIVATE)
+    }
+    fun get(key: String, def: String = ""): String = prefs?.getString(key, def) ?: def
+    fun set(key: String, value: String) { prefs?.edit()?.putString(key, value)?.apply() }
+    fun remove(key: String) { prefs?.edit()?.remove(key)?.apply() }
+}
+
 object Runtime {
     var pushHandler: ((String) -> Unit)? = null
     fun push(route: String) {
@@ -437,7 +449,8 @@ function loopField(v: string, loop?: { itemKey: string }): string {
  *  含 localStorage/网络/控制流的 body 超出子集 → 返回 null（调用方降级 TODO 注释） */
 function inlineHandlerKotlin(fn: { name: string; params: string; body: string }): string | null {
   if (fn.params && fn.params.trim() !== '') return null; // 带参 handler 不内联（A5 需数据桥）
-  if (/localStorage|window\.|document\.|fetch\(|setTimeout|alert\(|console\.|return\b|function/.test(fn.body)) return null;
+  // R73：localStorage / Number() 现已支持（见 jsExprToKotlin）；其余（window/document/fetch/setTimeout/return/嵌套函数）仍走协程或降级
+  if (/window\.|document\.|fetch\(|setTimeout|alert\(|console\.|return\b|function/.test(fn.body)) return null;
   const out: string[] = [];
   for (const raw of fn.body.split(/[\n;]+/)) {
     const st = raw.trim().replace(/stateStore\.(\w+)/g, '$1').replace(/'([^']*)'/g, '"$1"');
@@ -595,6 +608,24 @@ function asyncLineKotlin(line: string, ctx: ComposeCtx): string | null {
     if (cond === null) return null;
     return `if (${cond}) {`;
   }
+  // R73 localStorage（语句形态）：setItem / removeItem
+  const lsSet = line.match(/^localStorage\.setItem\((.+),\s*(.+)\);?$/);
+  if (lsSet) {
+    const k = jsExprToKotlin(lsSet[1].trim());
+    const v = jsExprToKotlin(lsSet[2].trim());
+    if (k === null || v === null) return null;
+    return `Store.set(${k}, ${v})`;
+  }
+  if (/^localStorage\.removeItem\(/.test(line)) {
+    const k = jsExprToKotlin(line.replace(/^localStorage\.removeItem\(/, '').replace(/\);?$/, ''));
+    return k === null ? null : `Store.remove(${k})`;
+  }
+  // 通用 `const x = <expr>` → `val x = <expr>`（置于 localStorage/fetch/JSON 专项之后）
+  const constAssign = line.match(/^const\s+([A-Za-z_$][\w$]*)\s*=\s*(.+?);?$/);
+  if (constAssign) {
+    const v = jsExprToKotlin(constAssign[2].trim());
+    return v === null ? null : `val ${constAssign[1]} = ${v}`;
+  }
   // console.log(x) → Log.d
   const logLine = line.match(/^console\.log\((.+)\);?$/);
   if (logLine) {
@@ -635,6 +666,13 @@ function jsExprToKotlin(expr: string): string | null {
   if (s === 'true' || s === 'false') return s;
   // .length → .length()（JSONArray）
   s = s.replace(/\.length\b(?!\()/g, '.length()');
+  // R73 localStorage → Store（函数式写法：getItem 直接用；setItem/removeItem 走语句分支）
+  s = s.replace(/localStorage\.getItem\((.+)\)$/g, (_m, k: string) => `Store.get(${k})`);
+  // JS 单引号字符串 → Kotlin 双引号（Kotlin 的单引号是 Char 字面量，'x' 编译不过）
+  s = s.replace(/'([^']*)'/g, (_m, inner: string) => `"${inner.replace(/"/g, '\\"')}"`);
+  // JS 类型转换 → Kotlin
+  s = s.replace(/Number\((.+)\)$/g, (_m, inner: string) => `${inner}.toInt()`);
+  s = s.replace(/String\((.+)\)$/g, (_m, inner: string) => `${inner}.toString()`);
   // JSON.stringify(x) → x.toString()（Kotlin 无 JSON 全局对象；与 JS 侧动态列表协议一致）
   s = s.replace(/JSON\.stringify\(([^()]*)\)/g, (_m, inner: string) => `${inner}.toString()`);
   // 成员访问 a.b（对象状态字段）
@@ -702,8 +740,10 @@ function emitNodeInner(node: IrNode, ctx: ComposeCtx, depth: number, loop?: { it
     if (typeof activeBg === 'string' && nd.active) {
       const when = kotlinCondExpr(nd.active.when);
       const active = colorExpr(activeBg);
-      const base = typeof props.background === 'string' ? colorExpr(props.background) : undefined;
-      return [`Modifier.background(${base ? `if (${when}) ${active} else ${base}` : active})`];
+      // 无基础背景时回退透明（对位 iOS `.background(when ? color : Color.clear)`）——
+      // 否则选中态会变成「所有行都高亮」（此前 bug）
+      const base = typeof props.background === 'string' ? colorExpr(props.background) : 'Color.Transparent';
+      return [`Modifier.background(if (${when}) ${active} else ${base})`];
     }
     return visualModifiers(props);
   };

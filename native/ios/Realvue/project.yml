@@ -1,0 +1,22 @@
+name: Realvue
+options:
+  bundleIdPrefix: com.vrn
+  deploymentTarget:
+    iOS: "17.0"
+  createIntermediateGroups: true
+targets:
+  Realvue:
+    type: application
+    platform: iOS
+    deploymentTarget: "17.0"
+    sources:
+      - Realvue
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.vrn.realvue
+        GENERATE_INFOPLIST_FILE: YES
+        INFOPLIST_KEY_UILaunchScreen_Generation: YES
+        INFOPLIST_KEY_UISupportedInterfaceOrientations: UIInterfaceOrientationPortrait
+        SWIFT_VERSION: "5.0"
+        TARGETED_DEVICE_FAMILY: "1"
+        CODE_SIGN_STYLE: Automatic

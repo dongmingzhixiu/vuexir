@@ -1,0 +1,21 @@
+{
+  "toolchain": "0.1.0",
+  "templateVersion": "0.1.0",
+  "platform": "ios",
+  "projectName": "Realvue",
+  "bundleId": "com.vrn.realvue",
+  "entry": "",
+  "generatedAt": "2026-10-17T06:59:30.986Z",
+  "templates": [
+    "project.yml"
+  ],
+  "files": [
+    "App.swift",
+    "DDetailView.swift",
+    "ListView.swift",
+    "Theme.swift",
+    "project.yml",
+    "runtime_DDetail.js",
+    "runtime_List.js"
+  ]
+}
