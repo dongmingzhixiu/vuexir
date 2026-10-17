@@ -4,7 +4,7 @@
  *  - 单页样例（App.vue）直接渲染；多页样例（router.ts）交给 RouterPreview 模拟导航
  *  - Chrome 设备工具栏风格：项目/机型下拉 + 可编辑尺寸 + DPR + 旋转 + 缩放
  */
-import { computed, ref } from 'vue';
+import { computed, onBeforeUnmount, ref } from 'vue';
 import RouterPreview from './RouterPreview.vue';
 import type { ScreenEntry } from './main';
 
@@ -78,14 +78,29 @@ function goto(name: string) {
 const w = window as unknown as Record<string, string>;
 w.__sample = props.selected;
 
+// R80 自适应：窄视口 / 触摸设备（浏览器开手机模式）→ 全屏直出，隐藏手机边框与工具栏占位
+const isCompact = ref(false);
+const updateCompact = (): void => {
+  const narrow = window.innerWidth <= 560;
+  const coarse = typeof window.matchMedia === 'function' && window.matchMedia('(pointer: coarse)').matches;
+  isCompact.value = narrow || (coarse && window.innerWidth <= 820);
+};
+updateCompact();
+window.addEventListener('resize', updateCompact);
+onBeforeUnmount(() => window.removeEventListener('resize', updateCompact));
+
 // 手机壳整体宽度（含边框），限制不超过视口；旋转时以高度换宽度
-const shellWidth = computed(() => Math.min(dispW.value + (device.value.bezel + 8) * 2, 430));
+const shellWidth = computed(() =>
+  isCompact.value ? dispW.value : Math.min(dispW.value + (device.value.bezel + 8) * 2, 430),
+);
 // 屏体宽度（不含边框）
-const screenWidth = computed(() => Math.min(dispW.value, 430 - (device.value.bezel + 8) * 2));
+const screenWidth = computed(() =>
+  isCompact.value ? dispW.value : Math.min(dispW.value, 430 - (device.value.bezel + 8) * 2),
+);
 </script>
 
 <template>
-  <div class="stage">
+  <div class="stage" :class="{ compact: isCompact }">
     <!-- Chrome 风格设备工具栏 -->
     <div class="chrome-bar">
       <label class="lbl" for="sel-screen">项目</label>
@@ -122,14 +137,16 @@ const screenWidth = computed(() => Math.min(dispW.value, 430 - (device.value.bez
     </div>
 
     <!-- 手机壳（缩放包裹） -->
-    <div class="zoom-wrap" :style="{ transform: `scale(${zoom})` }">
+    <div class="zoom-wrap" :style="{ transform: isCompact ? `scale(1)` : `scale(${zoom})` }">
       <div class="phone" :style="{
         width: shellWidth + 'px',
-        borderRadius: device.radius + 'px',
-        padding: (device.bezel + 4) + 'px ' + (device.bezel + 4) + 'px ' + (device.bezel + 8) + 'px',
+        borderRadius: (isCompact ? 0 : device.radius) + 'px',
+        padding: isCompact ? '0px' : (device.bezel + 4) + 'px ' + (device.bezel + 4) + 'px ' + (device.bezel + 8) + 'px',
+        border: isCompact ? 'none' : undefined,
+        boxShadow: isCompact ? 'none' : undefined,
       }">
         <!-- 状态栏（按机型样式） -->
-        <div class="statusbar" :class="device.status">
+        <div v-if="!isCompact" class="statusbar" :class="device.status">
           <!-- <span v-if="device.status === 'island'" class="island"></span>
           <span v-if="device.status === 'notch'" class="notch"></span>
           <span v-if="device.status === 'punch'" class="punch"></span>
@@ -162,6 +179,23 @@ const screenWidth = computed(() => Math.min(dispW.value, 430 - (device.value.bez
   align-items: center;
   gap: 16px;
   padding: 16px 16px 40px;
+}
+
+/* R80 紧凑模式（移动浏览器/窄视口）：隐藏设备工具栏与手机边框，屏体铺满整屏 */
+.stage.compact {
+  gap: 0;
+  padding: 0;
+}
+.stage.compact .chrome-bar {
+  display: none;
+}
+.stage.compact :deep(.shell-frame) {
+  border: none;
+  border-radius: 0;
+  box-shadow: none;
+  background: transparent;
+  padding: 0;
+}
   min-height: 100vh;
   box-sizing: border-box;
   overflow: hidden;

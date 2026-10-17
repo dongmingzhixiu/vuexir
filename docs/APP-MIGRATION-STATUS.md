@@ -184,3 +184,22 @@ migrate/pages/Detail.vue   # 详情 + 读取记录
 | 浏览器 | `/migrate.html` + 4 个页面模块 全 200，vite 零错误 |
 | Android | `gen`（1 tab + 4 detail）→ `gradle assembleDebug` **BUILD SUCCESSFUL** |
 | iOS | `gen` → `xcodebuild` **BUILD SUCCEEDED** → 模拟器 OCR：`生日提醒 / 你好 / 今天 / 生日提醒·农历/公历自动换算 / 的生日 / 7 …` |
+
+## 十二、Round 8（7 页齐 + R80 预览自适应）
+
+**迁移页**：`migrate/` 现 7 页（1 tab + 6 push）
+Home / Detail / AllList / Add / Calendar / **Discover**（发现列表 → 跳阅读）/ **Read**（文章页）
+
+**框架修复/能力**
+- **R80 预览手机壳自适应**（要求④第一步）：`PhoneFrame.vue` 新增 `isCompact`
+  - 判定：`innerWidth <= 560` 或（触摸设备 且 `innerWidth <= 820`）
+  - 紧凑模式：隐藏设备工具栏、手机壳无圆角/无内边距/无边框阴影、状态栏仿真不渲染、缩放固定 1 → 浏览器开手机模式时**直出全屏**
+  - 保留 PC 模式下的完整手机壳与工具栏
+- 迁移中再次验证 **R74**：状态名 `body` 与 SwiftUI `var body` 冲突 → 警告生效（页面改名 `leadText` 后通过）。**结论：R74 目前是警告但后果是 Swift 硬编译失败，下一轮应改为「自动改名 + 警告」**
+
+**验收**
+| 端 | 结果 |
+|---|---|
+| 浏览器 | 7/7 页面模块 200，vite 零错误 |
+| Android | `gradle assembleDebug` **BUILD SUCCESSFUL**（1 tab + 6 detail） |
+| iOS | `xcodebuild` **BUILD SUCCEEDED**（`ReadDetailView.swift` 改名后通过） |
