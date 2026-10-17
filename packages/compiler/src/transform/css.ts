@@ -64,7 +64,9 @@ function mapDeclInner(prop: string, value: string, warnings: string[]): [string,
   switch (prop) {
     case 'display':
       // display:flex → 容器语义；display:block/none 不映射（flex 为默认容器）
-      return v === 'flex' ? [['flexDirection', 'column']] : null;
+      // R135：CSS 的 display:flex 默认 main axis 是 row（此前默认 column →
+      // 横向工具栏/星期行被渲染成纵向堆叠，日历标题栏就是这么坏掉的）
+      return v === 'flex' ? [['flexDirection', 'row']] : null;
     case 'flex-direction':
       return [['flexDirection', v]];
     case 'flex': {
