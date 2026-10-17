@@ -212,7 +212,13 @@ const RUNTIME_SWIFT = `final class Runtime {
         if let path = found {
             NSLog("[vrn] loading %@", resName)
             if let src = try? String(contentsOfFile: path, encoding: .utf8) {
-                ctx.evaluateScript(src)
+                // R117：JSC 会静默吞掉脚本异常 → 显式检查并打印，否则运行时错误完全不可见
+                var jsErr: JSValue?
+                ctx.evaluateScript(src, withSourceURL: URL(string: "vrn://" + resName + ".js"))
+                if let e = jsErr, !e.isUndefined {
+                    let stack = e.objectForKeyedSubscript("stack")?.toString() ?? ""
+                    NSLog("[vrn] JS 异常(%@): %@ | %@", resName, e.toString() ?? "?", stack)
+                }
             } else { NSLog("[vrn] read %@ failed", resName) }
         } else { NSLog("[vrn] %@ NOT in bundle", resName) }
         let om = ctx.objectForKeyedSubscript("__onMounted")
