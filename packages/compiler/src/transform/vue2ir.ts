@@ -538,7 +538,6 @@ function __vrnSyncPage() {
         else continue;                                                    // 函数/常量交给模板静态值
         if (val === undefined || val === null) continue;
         stateStore[k] = (typeof val === "object") ? JSON.stringify(__vrnFlat(val)) : val;
-      } catch (e) {}
     }
   } catch (e) {}
 }
