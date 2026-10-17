@@ -144,8 +144,27 @@ var __vrnStores = (typeof globalThis !== "undefined" && globalThis.__vrnStores) 
 function __vrnBind(store, obj) {
   Object.keys(obj || {}).forEach(function (k) {
     var v = obj[k];
-    if (typeof v === "function") store[k] = v.bind(store);
-    else store[k] = v;
+    if (typeof v === "function") {
+      // R119：action 内部异常在原生端完全不可见 → 记录到全局错误表并 toast 出来
+      store[k] = function () {
+        var self = this;
+        var rec = function (e) {
+          try {
+            var errs = (globalThis.__vrnErrs = globalThis.__vrnErrs || []);
+            errs.push(k + ": " + String((e && e.message) || e));
+            if (typeof bridge !== "undefined" && bridge && bridge.toast) bridge.toast("E(" + k + "): " + String((e && e.message) || e).slice(0, 40));
+          } catch (_) {}
+        };
+        try {
+          var r = v.apply(self, arguments);
+          if (r && typeof r.then === "function") r.then(null, rec);
+          return r;
+        } catch (e) {
+          rec(e);
+          throw e;
+        }
+      };
+    } else store[k] = v;
   });
 }
 export function defineStore(id, def) {
