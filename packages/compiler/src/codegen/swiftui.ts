@@ -523,7 +523,7 @@ function emitNode(node: IrNode, ctx: Ctx): string {
   if (node.condition) {
     const L = ctx.level;
     const inner = emitNodeInner(node, ctx);
-    const known = ctx.stateNames ?? new Set<string>();
+    const known = ctx.stateNames && ctx.stateNames.size > 0 ? ctx.stateNames : undefined;
     const swiftCond = swiftCondExpr(node.condition, known);
     return `${indent(L)}if ${swiftCond} {\n${inner}\n${indent(L)}}`;
   }
@@ -533,8 +533,10 @@ function emitNode(node: IrNode, ctx: Ctx): string {
 /** JS 条件表达式 → Swift 兼容：===/!== 为 JS 严格比较，Swift 用 ==/!=；字符串字面量单引号 → 双引号 */
 function swiftCondExpr(expr: string, known?: Set<string>): string {
   // R114：条件引用原生端不存在的标识符 → true（保留内容），避免整页编译失败
-  if (known) {
-    const ids = [...expr.matchAll(/(?<![.\w$])([A-Za-z_$][\w$]*)/g)].map((m) => m[1]);
+  if (known && known.size > 0) {
+    // 先剥掉字符串字面量，避免把 "success" 之类当成标识符
+    const stripped = expr.replace(/'[^']*'|"[^"]*"/g, '""');
+    const ids = [...stripped.matchAll(/(?<![.\w$])([A-Za-z_$][\w$]*)/g)].map((m) => m[1]);
     const unknown = ids.filter((id) => !known.has(id) && !['true', 'false', 'Math', 'String', 'Number'].includes(id));
     if (unknown.length > 0) return 'true';
   }

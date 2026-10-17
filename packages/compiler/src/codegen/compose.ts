@@ -461,7 +461,9 @@ function safeBind(name: string, ctx: ComposeCtx, loop?: { itemKey: string; index
 function kotlinCondExpr(expr: string, ctx?: ComposeCtx, loop?: { itemKey: string; indexKey?: string }): string {
   // R114：条件里引用了原生端不存在的标识符 → 回退为 true（保留内容）并告警，避免整页编译失败
   {
-    const ids = [...expr.matchAll(/(?<![.\w$])([A-Za-z_$][\w$]*)/g)].map((m) => m[1]);
+    // 先剥掉字符串字面量，避免把 "success" 之类当成标识符
+    const stripped = expr.replace(/'[^']*'|"[^"]*"/g, '""');
+    const ids = [...stripped.matchAll(/(?<![.\w$])([A-Za-z_$][\w$]*)/g)].map((m) => m[1]);
     const known = new Set((ctx?.states ?? []).map((st) => st.name));
     if (loop) {
       known.add(loop.itemKey);
@@ -469,7 +471,7 @@ function kotlinCondExpr(expr: string, ctx?: ComposeCtx, loop?: { itemKey: string
     }
     for (const k of ['true', 'false', 'Math', 'String', 'Number', 'stateStore']) known.add(k);
     const unknown = ids.filter((id) => !known.has(id));
-    if (unknown.length > 0 && ctx) {
+    if (unknown.length > 0 && ctx && (ctx.states ?? []).length > 0) {
       ctx.warnings?.push?.(`条件「${expr.slice(0, 40)}」引用了原生端不存在的标识符（${unknown.join(', ')}）→ 按 true 处理（R114）`);
       return 'true';
     }
