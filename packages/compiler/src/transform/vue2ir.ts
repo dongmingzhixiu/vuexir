@@ -348,6 +348,21 @@ ${computedStates
   .join('\n')}
 }
 __vrnRecompute();
+// R116：store 引导——原生端没有 App.vue，页面脚本不会自动调用 store.init()，
+// 这里对全局所有 useXxxStore 单例统一触发一次 init（异步，结果由下面的重算循环拾取）
+(function () {
+  try {
+    var names = Object.getOwnPropertyNames(globalThis).filter(function (n) {
+      return /^use[A-Za-z0-9_$]*Store$/.test(n) && typeof globalThis[n] === "function";
+    });
+    names.forEach(function (n) {
+      try {
+        var st = globalThis[n]();
+        if (st && typeof st.init === "function") st.init();
+      } catch (e) {}
+    });
+  } catch (e) {}
+})();
 // R102：异步数据（store init / db 读取）落地后派生值要能跟上——启动后 2s 内持续重算
 (function () {
   var __n = 0;

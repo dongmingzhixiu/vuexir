@@ -201,8 +201,15 @@ const RUNTIME_SWIFT = `final class Runtime {
         }
         ctx.setObject(routerBack, forKeyedSubscript: "__routerBack" as NSString)
 
-        let resName = page == "main" ? "runtime" : "runtime_" + page
-        if let path = Bundle.main.path(forResource: resName, ofType: "js") {
+        // R116：页面键既可能是 main（容器）也可能是页面 id → 两个候选都试，
+        // 否则 tab 页会去找 runtime.js 而实际文件是 runtime_<Page>.js（旧版直接不加载脚本）
+        var resName = page == "main" ? "runtime" : "runtime_" + page
+        var found = Bundle.main.path(forResource: resName, ofType: "js")
+        if found == nil {
+            let alt = page == "main" ? "runtime_Home" : "runtime"
+            if let p2 = Bundle.main.path(forResource: alt, ofType: "js") { found = p2; resName = alt }
+        }
+        if let path = found {
             NSLog("[vrn] loading %@", resName)
             if let src = try? String(contentsOfFile: path, encoding: .utf8) {
                 ctx.evaluateScript(src)
