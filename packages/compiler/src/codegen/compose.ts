@@ -709,7 +709,11 @@ function kotlinClickAction(p: IrProps, ctx: ComposeCtx, loop?: { itemKey: string
     if (dec) return dec[1] + ' = ' + dec[1] + ' - 1';
     const push = h.match(/router(?:\.push|Push)?\(\s*(.+?)\s*\)/);
     if (push) {
-      const arg = push[1].trim();
+      const arg0 = push[1].trim();
+      // R111：router.push({ name: 'x' }) / { path: 'x' } → 只取目标值（Kotlin 里对象字面量会被当 lambda）
+      const objM = arg0.match(/^\{[^}]*?(?:name|path)\s*:\s*['"]([^'"]+)['"]/);
+      if (objM) return 'Runtime.push("' + objM[1] + '")';
+      const arg = arg0;
       const isLit = (arg.startsWith("'") && arg.endsWith("'")) || (arg.startsWith('"') && arg.endsWith('"'));
       if (isLit) return 'Runtime.push(' + kotlinStr(arg.slice(1, -1)) + ')';
       return 'Runtime.push(' + loopField(arg, loop) + ')';
@@ -945,7 +949,7 @@ function emitNode(node: IrNode, ctx: ComposeCtx, depth: number, loop?: { itemKey
     return (
       pad + 'if (' + kotlinCondExpr(node.condition) + ') {\n' +
       emitNodeInner(node, ctx, depth + 1, loop, useParamModifier, parentStretch) +
-      '\n' + pad + '}'
+      '\n' + pad + '}\n'
     );
   }
   return emitNodeInner(node, ctx, depth, loop, useParamModifier, parentStretch);
