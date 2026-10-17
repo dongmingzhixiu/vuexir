@@ -65,7 +65,7 @@ for (const dir of [...BUILD_ORDER, ...pkgs.filter((d) => !BUILD_ORDER.includes(d
     exportsMap[key] = { types: `./dist/${base}.d.ts`, import: `./dist/${base}.js` };
   }
   j.exports = exportsMap;
-  j.files = ['dist', 'README.md', 'LICENSE'];
+  j.files = dir === 'vite-plugin' ? ['dist', 'preview', 'README.md', 'LICENSE'] : ['dist', 'README.md', 'LICENSE'];
   j.main = './dist/index.js';
   j.types = './dist/index.d.ts';
   j.scripts = { ...(j.scripts ?? {}), build: 'node ../../scripts/build-packages.mjs --only ' + dir };

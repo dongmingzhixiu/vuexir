@@ -6,7 +6,7 @@
  */
 import { computed, onBeforeUnmount, ref } from 'vue';
 import RouterPreview from './RouterPreview.vue';
-import type { ScreenEntry } from './main';
+import type { ScreenEntry } from './preview-main';
 
 const props = defineProps<{
   screens: ScreenEntry[];
@@ -167,7 +167,8 @@ const screenWidth = computed(() =>
   </div>
 </template>
 <style>
-#vuexir-preview {
+#vuexir-preview,
+#vrn-preview {
   height: 100vh;
   overflow: hidden;
 }
@@ -196,6 +197,8 @@ const screenWidth = computed(() =>
   background: transparent;
   padding: 0;
 }
+/* R80 紧凑模式：手机壳铺满视口（对应丢失的选择器，修复 CSS 括号失衡） */
+.stage.compact .phone {
   min-height: 100vh;
   box-sizing: border-box;
   overflow: hidden;

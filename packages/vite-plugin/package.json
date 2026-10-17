@@ -12,6 +12,7 @@
   },
   "files": [
     "dist",
+    "preview",
     "README.md",
     "LICENSE"
   ],

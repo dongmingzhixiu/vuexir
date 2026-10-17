@@ -8,6 +8,7 @@
  *  3. 安装 window.router shim：页面 <script> 里 declare const router 后调用
  *     router.push('/x') / router.back() 在浏览器里可运行（编译器 JS 子集一致）
  */
+import { VRN_API_BASE } from './api';
 import { ref, shallowRef, onMounted, computed, onBeforeUnmount, type Component, type App as VueApp } from 'vue';
 
 const props = defineProps<{
@@ -58,7 +59,7 @@ async function loadComp(path: string): Promise<Component | null> {
   if (comps.value[path]) return comps.value[path];
   try {
     const mod = await import(
-      `/__comp?name=${encodeURIComponent(props.sampleName)}&file=${encodeURIComponent(r.compPath.slice(2))}`
+      `${VRN_API_BASE}/page?name=${encodeURIComponent(props.sampleName)}&file=${encodeURIComponent(r.compPath.slice(2))}`
     );
     comps.value = { ...comps.value, [path]: mod.default };
     return mod.default;
@@ -90,7 +91,7 @@ async function mountVueRouter(): Promise<boolean> {
   if (!props.hasMain || !vueroot.value) return false;
   try {
     const mod = await import(
-      `/__comp?name=${encodeURIComponent(props.sampleName)}&file=main.ts`
+      `${VRN_API_BASE}/page?name=${encodeURIComponent(props.sampleName)}&file=main.ts`
     );
     if (typeof mod.mountApp === 'function') {
       const m = mod.mountApp(vueroot.value);

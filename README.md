@@ -59,12 +59,16 @@ npx vuexir gen ios       # 只生成源码
 npx vuexir build android --run
 ```
 
-可选 Vite 集成（边写边看手机壳预览 + IR 调试）：
+可选 Vite 集成（一行插件 = 手机壳预览 + IR 调试）：
 
 ```ts
 import vrn from '@dongmingzhixiu/vuexir-vite-plugin'
 export default { plugins: [vue(), vrn({ entry: 'src/router.ts', outDir: 'native' })] }
 ```
+
+加完这行后直接打开 **`http://localhost:5173/__vrn/`** —— 手机壳里跑的就是你真实的 Vue 页面
+（浏览器预览验证「Vue 表达」，原生还原度仍以模拟器截图为准）。手机壳会自适应：PC 显示设备外观，
+手机/窄视口自动收成无边框铺满（R80）。`/__vrn/screens`、`/__vrn/router`、`/__vrn/ir` 提供调试数据。
 
 ## 三、本仓库内开发（贡献者）
 
