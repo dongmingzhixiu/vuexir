@@ -21,8 +21,25 @@ import { NodeTypes } from '@vue/compiler-core';
 import type { ElementNode, RootNode, TemplateChildNode } from '@vue/compiler-core';
 import type { IrNode, IrScreen, IrProps, IrVFor } from '../ir/schema.js';
 import { CssParseError, mergeIrProps, parseCss, parseInlineStyle } from './css.js';
+import { buildStoreRegistry, findStoreAliases, type StoreDef } from './stores.js';
 
 export class VueCompileError extends Error {}
+
+/** R86 store 别名表：`ui` → StoreDef（每次 vueToIr 重建；与 vforConsts 同风格） */
+let storeAliases: Map<string, StoreDef> = new Map();
+
+/** R86 把 `alias.field.path` 拍平为 `alias_field.path`；getter/action 返回哨兵串 */
+function flattenStorePath(name: string): string {
+  if (storeAliases.size === 0) return name;
+  const m = name.match(/^([A-Za-z_$][\w$]*)\.(.+)$/);
+  if (!m) return name;
+  const def = storeAliases.get(m[1]);
+  if (!def) return name;
+  const segs = m[2].split('.');
+  const field = segs[0];
+  if (!def.state.some((f) => f.name === field)) return `\u0000store:${m[1]}.${m[2]}`;
+  return [`${m[1]}_${field}`, ...segs.slice(1)].join('.');
+}
 
 /** <script setup> 状态提取结果：ref 状态 + 赋值 setter（最小子集） */
 export interface ScreenStateInfo {
@@ -665,6 +682,8 @@ const TAG_MAP: Record<string, { type: string; defaultProps?: IrProps }> = {
 };
 
 export interface Vue2IrOptions {
+  /** R86 Pinia store 源码（文件名 → 源码）；提供后页面可用 `const ui = useUiStore()` 读状态 */
+  storeSources?: Record<string, string>;
   screenId?: string;
   title?: string;
   /** 设计稿高度（默认 640，R16 适配基准） */
@@ -691,6 +710,7 @@ let vforConsts: Record<string, string> = {};
 export function vueToIr(source: string, opts: Vue2IrOptions = {}): Vue2IrResult {
   compPosition = new Map();
   vforConsts = {};
+  storeAliases = new Map();
   const warnings: string[] = [];
   const { descriptor, errors } = parse(source, { filename: 'Screen.vue' });
   if (errors.length > 0) {
@@ -791,6 +811,18 @@ export function vueToIr(source: string, opts: Vue2IrOptions = {}): Vue2IrResult 
     for (const h of handlers) {
       if (/\b(const|let)\s+[A-Za-z_$][\w$]*\s*:/.test(h.body)) {
         warnings.push(`handler「${h.name}」函数体疑似含 TS 类型标注（如 const x: number = 1），runtime.js 将解析失败——请移除类型标注（R13 仅支持 JS 子集）`);
+      }
+    }
+    // R86 Pinia 折叠：`const ui = useUiStore()` → 把 store.state 拍平成页面状态 `ui_<field>`
+    if (opts.storeSources) {
+      const registry = buildStoreRegistry(opts.storeSources);
+      storeAliases = findStoreAliases(src, registry);
+      for (const [alias, def] of storeAliases) {
+        for (const f of def.state) {
+          const flat = `${alias}_${f.name}`;
+          if (stateInfo.states.some((st) => st.name === flat)) continue;
+          stateInfo.states.push({ name: flat, init: f.init, ...(f.obj ? { obj: true } : {}), ...(f.list ? { list: true } : {}) });
+        }
       }
     }
     // R74：状态名撞原生保留成员（SwiftUI `body`、Kotlin 关键字）→ 自动改名 + 警告（不再只警告导致后续编译失败）
@@ -983,7 +1015,9 @@ function walk(
     case NodeTypes.COMMENT:
       return [];
     case NodeTypes.INTERPOLATION: {
-      const name = textOf(node.content).trim();
+      const nameRaw = textOf(node.content).trim();
+      // R86：store 访问先拍平（ui.dialog.title → ui_dialog.title）；getter/action 返回哨兵
+      const name = flattenStorePath(nameRaw);
       // 组件树模式（propRefs 传入=非空）：{{ 任意名 }} → text ref（Swift Text(prop)，
       // prop 名由组件树实际引用自动收集，不强制 defineProps 声明）
       if (propRefs) {
@@ -993,6 +1027,12 @@ function walk(
           return [{ type: 'text', props: { fieldOf: { obj: cf[1], field: cf[2] } } }];
         }
         return [{ type: 'text', props: { ref: name } }];
+      }
+      if (name.startsWith('\u0000store:')) {
+        warnings.push(
+          `插值 {{ ${name.slice(8)} }} 是 Pinia store 的 getter/action，R86 目前只折叠 state 字段 → 已生成占位文本`,
+        );
+        return [{ type: 'text', props: { text: ' ' } }];
       }
       // M2 模板内三元（D1 小范围）：cond ? 'a' : 'b' → Swift 三元字符串表达式（Text(expr)）
       const tri = parseTernaryExpr(name);
@@ -1500,7 +1540,7 @@ function walkElement(
         text += child.content;
         parts.push({ text: child.content });
       } else if (child.type === NodeTypes.INTERPOLATION) {
-        const name = textOf(child.content).trim();
+        const name = flattenStorePath(textOf(child.content).trim());
         // 动态列表项属性 {{ item.field }}：基名（dot[0]）命中循环变量才成立
         const dot = name.split('.');
         const base = dot[0];
@@ -1517,6 +1557,13 @@ function walkElement(
           // M4b 单插值动态列表项属性 {{ item.field }} → 单段 bindParts
           if (dyn) {
             parts.push({ dynField: { var: dot[0], field: dot[1] } });
+            continue;
+          }
+          if (name.startsWith('\u0000store:')) {
+            warnings.push(
+              `插值 {{ ${name.slice(8)} }} 是 Pinia store 的 getter/action，R86 目前只折叠 state 字段 → 已生成占位文本`,
+            );
+            parts.push({ text: ' ' });
             continue;
           }
           // M2：v-for 循环变量（item/index）优先于状态表

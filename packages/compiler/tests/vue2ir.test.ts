@@ -575,4 +575,22 @@ function calc() { const step: number = 1; count.value = count.value + step }
     expect(nodes).toContain('"obj":"board","field":"tags.length"');
     expect(nodes).toContain('"obj":"board","field":"month.names"');
   });
+
+  it('R86 Pinia store 状态折叠：const ui = useUiStore() → ui_<field> 状态 + 拍平取值', () => {
+    const storeSrc = `export const useUiStore = defineStore('ui', {
+  state: (): UiState => ({ count: 3, dialog: { title: '提示' } }),
+})`;
+    const src = `<template><div class="page"><p class="t">{{ ui.dialog.title }}</p><p class="t">{{ ui.count }}</p></div></template>
+<script setup>import { useUiStore } from '@/stores/ui'
+const ui = useUiStore()</script>
+<style>.page { background: #0f1832; } .t { font-size: 13px; color: #ffffff; }</style>`;
+    const r = vueToIr(src, { screenId: 'S', storeSources: { 'ui.ts': storeSrc } });
+    const names = (r.screen.state ?? []).map((x) => x.name);
+    expect(names).toContain('ui_count');
+    expect(names).toContain('ui_dialog');
+    expect((r.screen.state ?? []).find((x) => x.name === 'ui_dialog')?.obj).toBe(true);
+    const ui = JSON.stringify(r.screen.ui);
+    expect(ui).toContain('"obj":"ui_dialog","field":"title"');
+    expect(ui).toContain('"bind":"ui_count"');
+  });
 });
