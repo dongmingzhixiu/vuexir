@@ -351,6 +351,20 @@ ${computedStates
   .join('\n')}
 }
 __vrnRecompute();
+// 探针：1.5s 后回显 soon/rest 的真实长度（调试期）
+(function () {
+  if (typeof setTimeout !== "function") return;
+  setTimeout(function () {
+    try {
+      var page = typeof __vrnPage !== "undefined" ? __vrnPage : globalThis.__vrnPage;
+      var msg = "P:";
+      ["soon", "rest", "nearest"].forEach(function (k) {
+        try { var v = page && page[k] ? page[k].value : undefined; msg += k + "=" + (v === undefined ? "undef" : (Array.isArray(v) ? v.length : typeof v)) + " "; } catch (e) { msg += k + "=ERR "; }
+      });
+      if (typeof bridge !== "undefined" && bridge && bridge.toast) bridge.toast(msg.slice(0, 60));
+    } catch (e) {}
+  }, 1500);
+})();
 // R102：异步数据（store init / db 读取）落地后派生值要能跟上——启动后 2s 内持续重算
 (function () {
   var __n = 0;

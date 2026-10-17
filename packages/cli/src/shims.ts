@@ -192,7 +192,25 @@ export function defineStore(id, def) {
         var g = def.getters[k];
         Object.defineProperty(store, k, {
           enumerable: true,
-          get: function () { try { return g.call(store, store); } catch (e) { return undefined; } },
+          get: function () {
+            try {
+              return g.call(store, store);
+            } catch (e) {
+              // R124：getter 异常在原生端不可见 → 记录并 toast 一次
+              try {
+                if (!globalThis.__vrnGetErr) {
+                  globalThis.__vrnGetErr = {};
+                }
+                if (!globalThis.__vrnGetErr[k]) {
+                  globalThis.__vrnGetErr[k] = 1;
+                  if (typeof bridge !== "undefined" && bridge && bridge.toast) {
+                    bridge.toast("G(" + k + "): " + String((e && e.message) || e).slice(0, 36));
+                  }
+                }
+              } catch (_) {}
+              return undefined;
+            }
+          },
         });
       });
       __vrnBind(store, def.actions);
