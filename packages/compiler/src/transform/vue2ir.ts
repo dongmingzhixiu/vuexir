@@ -54,6 +54,9 @@ function addJsExprState(expr: string): string {
   return name;
 }
 
+/** R104 脚本里声明过的名字（const/let/function）——未登记为 state 时走运行时求值 */
+let scriptDeclaredNames: Set<string> = new Set();
+
 /** R86 store 别名表：`ui` → StoreDef（每次 vueToIr 重建；与 vforConsts 同风格） */
 let storeAliases: Map<string, StoreDef> = new Map();
 
@@ -916,6 +919,12 @@ const TAG_MAP: Record<string, { type: string; defaultProps?: IrProps }> = {
   small: { type: 'text', defaultProps: { fontSize: 12 } },
   u: { type: 'text', defaultProps: { fontSize: 14 } },
   code: { type: 'text', defaultProps: { fontSize: 13 } },
+  // R104：真实页面高频标签（原生端无对应语义，按最接近的容器/文本降级）
+  select: { type: 'group', defaultProps: { flexDirection: 'column' } },
+  option: { type: 'text', defaultProps: { fontSize: 14 } },
+  aside: { type: 'group', defaultProps: { flexDirection: 'column' } },
+  figure: { type: 'group', defaultProps: { flexDirection: 'column' } },
+  figcaption: { type: 'text', defaultProps: { fontSize: 12 } },
   h1: { type: 'text', defaultProps: { fontSize: 24, fontWeight: 'bold' } },
   h2: { type: 'text', defaultProps: { fontSize: 20, fontWeight: 'bold' } },
   h3: { type: 'text', defaultProps: { fontSize: 17, fontWeight: 'medium' } },
@@ -957,6 +966,7 @@ export function vueToIr(source: string, opts: Vue2IrOptions = {}): Vue2IrResult 
   compPosition = new Map();
   vforConsts = {};
   storeAliases = new Map();
+  scriptDeclaredNames = new Set();
   storeConstArrays = {};
   derivedNames = new Map();
   storeGetterWarnings = [];
@@ -1050,6 +1060,16 @@ export function vueToIr(source: string, opts: Vue2IrOptions = {}): Vue2IrResult 
   if (script && script.content.trim()) {
     const src = script.content;
     stateInfo = extractScreenState(src);
+    // R104：记录脚本里所有顶层声明（插值命中但非 state 时下沉求值）
+    for (const dm of src.matchAll(/(?:const|let|var|function)\s+([A-Za-z_$][\w$]*)/g)) {
+      scriptDeclaredNames.add(dm[1]);
+    }
+    for (const dm of src.matchAll(/const\s*\{([^}]+)\}\s*=/g)) {
+      for (const part of dm[1].split(',')) {
+        const nm = part.split(':').pop()?.trim().replace(/=.*$/, '').trim();
+        if (nm && /^[A-Za-z_$][\w$]*$/.test(nm)) scriptDeclaredNames.add(nm);
+      }
+    }
     const fns = extractFunctions(src);
     // M1 已落地的 setter 函数（x.value = <expr>）升级为完整 handler：body 原样进运行时（含 localStorage/状态读写）
     handlers = fns.map((f) => ({
@@ -1384,6 +1404,10 @@ function walk(
         if (state && state.states.some((s) => s.name === name)) {
           return [{ type: 'text', bind: { key: name } }];
         }
+        // R104：脚本里声明过但不是 ref 状态（computed/普通 const/解构来的值）→ 交给 JS 运行时求值
+        if (scriptDeclaredNames.has(name)) {
+          return [{ type: 'text', props: { bind: addJsExprState(nameRaw) } }];
+        }
         throw new VueCompileError(
           `插值 {{ ${name} }}：未在 <script setup> 中声明为 ref 状态（M1 白名单：仅支持已声明状态）`,
         );
@@ -1412,9 +1436,8 @@ function walk(
           return [{ type: 'text', props: { text: ' ' } }];
         }
       }
-      throw new VueCompileError(
-        `插值表达式 {{ ${name} }} 暂不支持（M1 仅支持纯状态名；三元/比较表达式 M2 白名单）`,
-      );
+      // R104：静态翻译不了 → 交给 JS 运行时求值（与元素文本分支保持一致）
+      return [{ type: 'text', props: { bind: addJsExprState(nameRaw) } }];
     }
     case NodeTypes.ELEMENT:
       return [walkElement(node, classProps, comboRules, scopedRules, pseudoRules, warnings, state, compTable, propRefs, loopScope, ancestorClasses)];
@@ -1665,6 +1688,10 @@ function walkElement(
   ancestorClasses: string[] = [],
 ): IrNode {
   let elementClasses: string[] = []; // M5 后代选择器：本元素 class 清单（子节点递归传祖先链）
+  // R104：<br> 换行 → 占位间距（原生端没有行内换行语义）
+  if (node.tag === 'br') {
+    return { type: 'spacer', props: { height: 8 } };
+  }
   // M2 v-for：任意元素（含 <template>）带 v-for → 包一层 for 节点，自身去指令后作项模板
   const forDir = node.props.find((p) => p.type === NodeTypes.DIRECTIVE && p.name === 'for');
   if (forDir) {
