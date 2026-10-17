@@ -650,4 +650,25 @@ const WAYS: { k: string; label: string }[] = [{ k: 'a', label: '扫码' }, { k: 
     expect(loops).toContain('暖阳');
     expect(loops).toContain('扫码');
   });
+
+  it('R89 computed/常量折叠 + 前置插值不再丢数据', () => {
+    const storeSrc = `export const useLibraryStore = defineStore('library', { state: (): S => ({ upcoming: [] }) })`;
+    const src = `<template><div class="page">
+      <p class="t">{{ monthLabel }}生日</p>
+      <p class="t">共 {{ all.length }} 条</p>
+    </div></template>
+<script setup>import { computed } from 'vue'
+import { useLibraryStore } from '@/stores/library'
+const store = useLibraryStore()
+const monthLabel = \`\${new Date().getMonth() + 1}月\`
+const all = computed(() => store.upcoming)</script>
+<style>.page { background: #0b1020; padding: 16px; } .t { font-size: 14px; color: #ffffff; }</style>`;
+    const r = vueToIr(src, { screenId: 'S', storeSources: { 'library.ts': storeSrc } });
+    const month = (r.screen.state ?? []).find((x) => x.name === 'monthLabel');
+    expect(month?.init).toMatch(/^\d+月$/); // 编译期求值
+    const ui = JSON.stringify(r.screen.ui);
+    expect(ui).toContain('"fieldOf":{"obj":"store_upcoming","field":"length"}');
+    expect(ui).toContain('"bind":"monthLabel"'); // 前置插值未被静态文本吞掉
+    expect(r.warnings).toEqual([]);
+  });
 });

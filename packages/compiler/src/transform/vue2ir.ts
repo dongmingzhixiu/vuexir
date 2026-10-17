@@ -25,6 +25,9 @@ import { buildStoreRegistry, findStoreAliases, parseSharedConstArrays, type Stor
 
 export class VueCompileError extends Error {}
 
+/** R89 派生名表：`all` → `ui_upcoming`（computed 折叠成状态点路径） */
+let derivedNames: Map<string, string> = new Map();
+
 /** R88 store 文件导出的常量数组（v-for 编译期内联用） */
 let storeConstArrays: Record<string, string> = {};
 
@@ -33,6 +36,11 @@ let storeAliases: Map<string, StoreDef> = new Map();
 
 /** R86 把 `alias.field.path` 拍平为 `alias_field.path`；getter/action 返回哨兵串 */
 function flattenStorePath(name: string): string {
+  // R89：computed 折叠出的派生名（all → ui_upcoming；all.length → ui_upcoming.length）
+  if (derivedNames.size > 0) {
+    const m0 = name.match(/^([A-Za-z_$][\w$]*)(\..+)?$/);
+    if (m0 && derivedNames.has(m0[1])) return derivedNames.get(m0[1])! + (m0[2] ?? '');
+  }
   if (storeAliases.size === 0) return name;
   const m = name.match(/^([A-Za-z_$][\w$]*)\.(.+)$/);
   if (!m) return name;
@@ -806,6 +814,14 @@ const TAG_MAP: Record<string, { type: string; defaultProps?: IrProps }> = {
   li: { type: 'group' },
   p: { type: 'text', defaultProps: { fontSize: 14 } },
   span: { type: 'text', defaultProps: { fontSize: 14 } },
+  // R89 续：行内语义标签按纯文本处理（原生端无 HTML 语义，但文本内容必须保留）
+  b: { type: 'text', defaultProps: { fontSize: 14 } },
+  strong: { type: 'text', defaultProps: { fontSize: 14 } },
+  i: { type: 'text', defaultProps: { fontSize: 14 } },
+  em: { type: 'text', defaultProps: { fontSize: 14 } },
+  small: { type: 'text', defaultProps: { fontSize: 12 } },
+  u: { type: 'text', defaultProps: { fontSize: 14 } },
+  code: { type: 'text', defaultProps: { fontSize: 13 } },
   h1: { type: 'text', defaultProps: { fontSize: 24, fontWeight: 'bold' } },
   h2: { type: 'text', defaultProps: { fontSize: 20, fontWeight: 'bold' } },
   h3: { type: 'text', defaultProps: { fontSize: 17, fontWeight: 'medium' } },
@@ -848,6 +864,7 @@ export function vueToIr(source: string, opts: Vue2IrOptions = {}): Vue2IrResult 
   vforConsts = {};
   storeAliases = new Map();
   storeConstArrays = {};
+  derivedNames = new Map();
   const warnings: string[] = [];
   const { descriptor, errors } = parse(source, { filename: 'Screen.vue' });
   if (errors.length > 0) {
@@ -964,6 +981,41 @@ export function vueToIr(source: string, opts: Vue2IrOptions = {}): Vue2IrResult 
           stateInfo.states.push({ name: flat, init: f.init, ...(f.obj ? { obj: true } : {}), ...(f.list ? { list: true } : {}) });
         }
       }
+    }
+    // R89 computed 折叠：`const all = computed(() => store.upcoming)` → 派生名指向扁平状态点路径
+    for (const cm of src.matchAll(/const\s+([A-Za-z_$][\w$]*)\s*=\s*computed\s*\(\s*\(\s*\)\s*=>\s*([^)]+?)\s*\)/g)) {
+      const expr = cm[2].trim();
+      const flat = flattenStorePath(expr);
+      if (flat !== expr && /^[A-Za-z_$][\w$.]*$/.test(flat)) {
+        derivedNames.set(cm[1], flat);
+      }
+    }
+    // R89 常量折叠：模块级纯常量（含可静态求值的模板字面量）注入为状态
+    for (const km of src.matchAll(/const\s+([A-Za-z_$][\w$]*)\s*(?::[^=]+)?=\s*(`[^`]*`|'[^']*'|"[^"]*"|-?\d+(?:\.\d+)?)\s*$/gm)) {
+      const raw = km[2];
+      const name = km[1];
+      if (stateInfo.states.some((st) => st.name === name)) continue;
+      let value: string | number | undefined;
+      if (/^-?\d+(\.\d+)?$/.test(raw)) value = Number(raw);
+      else if (raw.startsWith('`')) {
+        // 模板字面量：仅允许 Date/Math/数字/字符串等可静态求值的片段，否则跳过
+        const inner = raw.slice(1, -1);
+        if (/\$\{[^}]*\}/.test(inner)) {
+          // 白名单改为黑名单：允许中文等任意字面字符，但禁止访问宿主/业务对象
+          if (!/\b(window|document|globalThis|require|process|fetch|store|props|this|localStorage)\b/.test(inner)) {
+            try {
+              value = String(new Function(`return \`${inner}\`;`)());
+            } catch {
+              /* 求值失败 → 跳过 */
+            }
+          }
+        } else {
+          value = inner;
+        }
+      } else {
+        value = raw.slice(1, -1);
+      }
+      if (value !== undefined) stateInfo.states.push({ name, init: value });
     }
     // R74：状态名撞原生保留成员（SwiftUI `body`、Kotlin 关键字）→ 自动改名 + 警告（不再只警告导致后续编译失败）
     {
@@ -1716,8 +1768,11 @@ function walkElement(
             // 纯单插值：组件 View 内 → ref（Text(prop)）；循环变量/页面状态 → bind
             if (propRefs) {
               refOnly = name;
+              // 后面可能还有静态文本 → 同步进 parts，否则最终会走 props.text 分支把插值整段丢掉
+              parts.push({ bind: name });
             } else if (loopVar || (state && state.states.some((s) => s.name === name))) {
               refOnly = name;
+              parts.push({ bind: name });
             } else {
               throw new VueCompileError(
                 `插值 {{ ${name} }}：未在 <script setup> 中声明为 ref 状态（M1 白名单：仅支持已声明状态）`,
