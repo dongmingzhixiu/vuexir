@@ -70,9 +70,10 @@ describe('vue2ir · 元素归一化与 CSS 子集', () => {
     expect(img.props!.radius).toBe(8);
   });
 
-  it('v-for 编译期报错', () => {
+  it('v-for 数字范围 → 下沉为运行时数组（Vue3 语义 1..N，R108）', () => {
     const src = `<template><div class="l"><span v-for="i in 3">{{ i }}</span></div></template><style>.l{display:flex;}</style>`;
-    expect(() => vueToIr(src)).toThrow(VueCompileError);
+    const r = vueToIr(src);
+    expect(((r.runtime ?? '') + JSON.stringify(r.screen.state ?? [])).includes('length')).toBe(true);
   });
 
   it('插值 {{ }} 编译期报错', () => {

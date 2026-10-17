@@ -923,6 +923,7 @@ const TAG_MAP: Record<string, { type: string; defaultProps?: IrProps }> = {
   select: { type: 'group', defaultProps: { flexDirection: 'column' } },
   option: { type: 'text', defaultProps: { fontSize: 14 } },
   aside: { type: 'group', defaultProps: { flexDirection: 'column' } },
+  label: { type: 'text', defaultProps: { fontSize: 13 } },
   figure: { type: 'group', defaultProps: { flexDirection: 'column' } },
   figcaption: { type: 'text', defaultProps: { fontSize: 12 } },
   h1: { type: 'text', defaultProps: { fontSize: 24, fontWeight: 'bold' } },
@@ -1312,7 +1313,9 @@ export function vueToIr(source: string, opts: Vue2IrOptions = {}): Vue2IrResult 
   // 5) <script setup> 逻辑源码 → 运行时 JS（R12：事件逻辑由原生 JS 引擎执行）
   //    仅支持 JS 子集（无 TS 类型标注、无 import）；超出即编译期警告（后续阶段扩展）
   // R98 P3：把模板表达式下沉产生的求值状态并入页面状态，并重建 runtime（含 recompute）
-  if (jsExprStates.length > 0 && stateInfo) {
+  if (jsExprStates.length > 0) {
+    // 无 <script setup> 的页面也要能承载表达式求值状态
+    if (!stateInfo) stateInfo = { states: [], setters: {} };
     for (const st of jsExprStates) {
       if (!stateInfo.states.some((x) => x.name === st.name)) stateInfo.states.push({ ...st });
     }
@@ -1731,15 +1734,39 @@ function walkElement(
         }
       }
     }
-    const vf = parseVFor(forExp, warnings, vforConsts);
+    let vf = parseVFor(forExp, warnings, vforConsts);
     void sunkList;
     if (!vf) {
-      throw new VueCompileError(
-        'v-for 仅支持静态数组字面量（M2，如 v-for="item in [1,2,3]" / v-for="(item, i) in [\'a\',\'b\']"；动态列表随 M3/M4）',
-      );
+      // R108 兜底：任意 `item in <表达式>` 都能下沉——运行时求值成 JSON 数组即可
+      const gm = forExp.trim().match(/^(?:\(([^)]+)\)|([A-Za-z_$][\w$]*))\s+in\s+([\s\S]+)$/);
+      if (gm) {
+        const expr = gm[3].trim();
+        // Vue3 语义：`v-for="i in 3"` 迭代 1..3
+        const rangeM = expr.match(/^(\d+)$/);
+        const sunk = addJsExprState(
+          rangeM
+            ? `JSON.stringify(Array.from({ length: ${rangeM[1]} }, function (_, i) { return i + 1; }))`
+            : `JSON.stringify(${expr})`,
+        );
+        vf = {
+          listState: sunk,
+          itemKey: (gm[1] ? gm[1].split(',')[0] : gm[2]).trim(),
+          indexKey: gm[1] ? gm[1].split(',')[1]?.trim() : undefined,
+        } as IrVFor;
+        warnings.push(`v-for「${forExp.trim().slice(0, 40)}」的数据源下沉为运行时求值（R108）`);
+      } else {
+        throw new VueCompileError(
+          'v-for 语法无法解析（需 `item in <表达式>` 形态）',
+        );
+      }
     }
     // M4b：动态列表数据源必须已声明为 ref 数组状态（编译期校验，防悬空引用）
-    if (vf.listState && !(state && state.states.some((s) => s.name === vf.listState))) {
+    // 表达式下沉产生的状态（_vrnE*）在 walk 之后才并入页面状态，这里放行
+    if (
+      vf.listState &&
+      !/^_vrnE\d+$/.test(vf.listState) &&
+      !(state && state.states.some((s) => s.name === vf.listState))
+    ) {
       throw new VueCompileError(
         `v-for 动态数据源「${vf.listState}」未在 <script setup> 中声明为 ref 数组（M4b）`,
       );
@@ -1945,6 +1972,17 @@ function walkElement(
     }
   }
 
+  // R108：button 只接受 label/bind —— 布局属性丢弃、缺 label 时占位（避免整页失败）
+  if (mapping.type === 'button') {
+    const badProps = ['flexDirection', 'justifyContent', 'alignItems', 'gap', 'flex', 'textAlign', 'lineHeight', 'overflow', 'clip'];
+    for (const k of badProps) delete (props as Record<string, unknown>)[k];
+  }
+  if (mapping.type === 'input') {
+    // R108：input 只接受 value/placeholder 等，文本样式属性一律丢弃
+    for (const k of ['textAlign', 'lineHeight', 'fontWeight', 'flexDirection', 'justifyContent', 'alignItems']) {
+      delete (props as Record<string, unknown>)[k];
+    }
+  }
   // 子节点：
   //  - button：文本 → label
   //  - text 类型（p/span/h1~h4）：全部文本子节点合并为 props.text；出现元素子节点 → 行内混合报错；
@@ -2103,6 +2141,12 @@ function walkElement(
           props.label = ((props.label ?? '') + child.content.trim()).trim();
           continue;
         }
+        if (child.type === NodeTypes.INTERPOLATION) {
+          // R108：按钮文案是动态表达式 → bind（运行时求值），原生端照样显示
+          const raw = textOf(child.content).trim();
+          if (!props.bind && !props.label) props.bind = addJsExprState(raw);
+          continue;
+        }
         if (child.type === NodeTypes.ELEMENT) {
           // 常见写法兜底：<button><span>文字</span></button> → 内联文本并入 label（否则 IR 校验因缺 label 中断）
           const inner = elementInnerText(child).trim();
@@ -2119,6 +2163,15 @@ function walkElement(
     }
   }
 
+  // R108：文本节点丢弃布局类属性（原生端 width/height/flexDirection 只对容器有意义）
+  if (mapping.type === 'text') {
+    const LAYOUT_ONLY = ['height', 'width', 'flexDirection', 'justifyContent', 'alignItems', 'flex', 'gap'];
+    const dropped = LAYOUT_ONLY.filter((k) => (props as Record<string, unknown>)[k] !== undefined);
+    if (dropped.length > 0) {
+      for (const k of dropped) delete (props as Record<string, unknown>)[k];
+      warnings.push(`<${node.tag}> 是文本节点，布局属性（${dropped.join('/')}）已忽略（R108）`);
+    }
+  }
   // R88 续：容器节点不接受文本专属样式（color/fontSize/fontWeight/textAlign/lineHeight）
   // 原生端容器没有「字体继承」，这类属性会直接触发 IR 校验拒收 → 明确降级 + 警告
   if (mapping.type === 'group' || mapping.type === 'for') {
@@ -2130,6 +2183,12 @@ function walkElement(
         `<${node.tag}> 是容器，文本样式（${dropped.join('/')}）在原生端不继承 → 已忽略；请把样式下沉到具体文本节点（R88）`,
       );
     }
+  }
+
+  // R108 兜底：按钮最终必须有可见文案（label 或 bind），否则整页校验失败
+  if (mapping.type === 'button' && props.label === undefined && props.bind === undefined) {
+    props.label = ' ';
+    warnings.push(`<button> 无可读文案（可能是纯图标按钮）→ 已占位，建议补 aria-label 或文案（R108）`);
   }
 
   // R77 空容器（<div class="spacer" /> 等占位写法）→ 降级为 spacer 占位 + 警告，而不是中断整个编译

@@ -856,7 +856,13 @@ function emitNodeInner(node: IrNode, ctx: Ctx): string {
     }
 
     case 'button': {
-      const label = props.label !== undefined ? props.label : '按钮';
+      // R108：动态按钮文案（props.bind → @State）优先于静态 label
+      const label =
+        props.bind !== undefined
+          ? props.bind
+          : props.label !== undefined
+            ? props.label
+            : '按钮';
       const fs = props.fontSize ?? 15;
       // 事件：onSet（状态直接赋值）优先，其次 onClick（JS 运行时），无事件则空 action
       // M1：onSet.kind==='expr' → 表达式原样嵌入（count + 1）；literal → 数字原样/字符串加引号

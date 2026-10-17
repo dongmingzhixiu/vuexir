@@ -1156,7 +1156,8 @@ function emitNodeInner(node: IrNode, ctx: ComposeCtx, depth: number, loop?: { it
     }
     case 'button': {
       const chain = modChain([...stretchModifiers(parentStretch, node), ...sizeModifiers(p), ...absModifiers(p), ...clipModifiers(p), ...visualModifiers(p), ...borderModifiers(p), ...paddingModifiers(p), ...alphaArr, ...transformModifiers(p)], pad + '            ');
-      const label = p.label ?? '';
+      // R108：动态按钮文案（props.bind）优先；Kotlin 里用字符串模板插值
+      const label = p.bind !== undefined ? '"${' + String(p.bind) + '}"' : (p.label ?? '');
       const click = kotlinClickAction(p, ctx, loop);
       const labelStyle: string[] = [];
       if (p.fontSize !== undefined) labelStyle.push('fontSize = ' + sp(p.fontSize));

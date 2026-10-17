@@ -378,7 +378,7 @@ const NODE_ALLOWED_PROPS: Record<NodeType, string[]> = {
   group: ['width', 'height', 'padding', 'gap', 'flex', 'flexDirection', 'justifyContent', 'alignItems', 'background', 'radius', 'borderWidth', 'borderColor', 'marginTopAuto', 'marginTop', 'marginLeftAuto', 'marginBottom', 'marginRight', 'marginLeft', 'borderSides', 'clip', 'onClick', 'onSet', 'position', 'absTop', 'absLeft', 'absRight', 'absBottom', 'transform', 'show', 'opacity'],
   text: ['width', 'text', 'ref', 'bind', 'bindExpr', 'dynField', 'bindParts', 'fontSize', 'fontWeight', 'textAlign', 'lineHeight', 'color', 'padding', 'colorActive', 'marginLeftAuto', 'marginTop', 'colorDynamic', 'fontSizeDynamic', 'position', 'absTop', 'absLeft', 'absRight', 'absBottom', 'transform', 'show', 'flex', 'opacity', 'onClick', 'onSet', 'fieldOf'],
   image: ['width', 'height', 'src', 'objectFit', 'radius', 'borderSides', 'borderWidth', 'borderColor', 'clip', 'flex', 'marginTop', 'marginBottom', 'marginRight', 'marginLeft', 'position', 'absTop', 'absLeft', 'absRight', 'absBottom', 'transform', 'show', 'opacity'],
-  button: ['width', 'height', 'label', 'background', 'radius', 'borderWidth', 'borderColor', 'fontSize', 'fontWeight', 'color', 'flex', 'padding', 'marginTopAuto', 'marginTop', 'marginBottom', 'marginRight', 'marginLeft', 'borderSides', 'clip', 'onClick', 'onSet', 'colorDynamic', 'fontSizeDynamic', 'position', 'absTop', 'absLeft', 'absRight', 'absBottom', 'transform', 'show', 'pressBg', 'opacity'],
+  button: ['width', 'height', 'label', 'bind', 'background', 'radius', 'borderWidth', 'borderColor', 'fontSize', 'fontWeight', 'color', 'flex', 'padding', 'marginTopAuto', 'marginTop', 'marginBottom', 'marginRight', 'marginLeft', 'borderSides', 'clip', 'onClick', 'onSet', 'colorDynamic', 'fontSizeDynamic', 'position', 'absTop', 'absLeft', 'absRight', 'absBottom', 'transform', 'show', 'pressBg', 'opacity'],
   input: ['width', 'height', 'value', 'placeholder', 'fontSize', 'color', 'background', 'padding', 'radius', 'borderWidth', 'borderColor', 'borderSides', 'clip', 'flex', 'marginTop', 'marginTopAuto', 'marginBottom', 'marginRight', 'marginLeft', 'onSet', 'colorDynamic', 'fontSizeDynamic', 'position', 'absTop', 'absLeft', 'absRight', 'absBottom', 'transform', 'show'],
   scroll: ['width', 'height', 'padding', 'gap', 'flexDirection', 'background', 'showsIndicators', 'flex'],
   spacer: ['width', 'height', 'flex'],
@@ -538,7 +538,12 @@ function validateNode(node: IrNode, path: string, issues: IrValidationIssue[], s
   if (node.type === 'text' && !node.bind && (!node.props || (node.props.text === undefined && node.props.ref === undefined && node.props.bind === undefined && node.props.bindExpr === undefined && node.props.dynField === undefined && node.props.bindParts === undefined && node.props.fieldOf === undefined))) {
     issues.push({ path, message: 'text 节点必须有 props.text / props.ref / props.bind / props.bindExpr / props.fieldOf 或 bind' });
   }
-  if (node.type === 'button' && !node.bind && (!node.props || node.props.label === undefined)) {
+  // R108：按钮文案可以是静态 label，也可以是动态 bind（运行时求值）
+  if (
+    node.type === 'button' &&
+    !node.bind &&
+    (!node.props || (node.props.label === undefined && node.props.bind === undefined))
+  ) {
     issues.push({ path, message: 'button 节点必须有 props.label 或 bind' });
   }
 
