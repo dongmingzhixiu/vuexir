@@ -446,7 +446,34 @@ function kotlinStr(s: string): string {
 }
 
 /** 条件表达式 → Kotlin（对位 iOS swiftCondExpr：=== / !== 归一 + 单引号字符串转双引号） */
-function kotlinCondExpr(expr: string): string {
+
+/** R114：文本绑定里引用的标识符若既不是页面状态也不是循环变量 → 视为未支持，回退空串 */
+function safeBind(name: string, ctx: ComposeCtx, loop?: { itemKey: string; indexKey?: string }): string {
+  const base = name.split('.')[0];
+  const isState = (ctx.states ?? []).some((st) => st.name === base);
+  const isLoop = loop && (loop.itemKey === base || loop.indexKey === base);
+  const isGlobal = ['true', 'false', 'Math', 'String', 'Number'].includes(base);
+  if (isState || isLoop || isGlobal) return loopField(name, loop);
+  ctx.warnings?.push?.(`模板引用「${name}」在原生端没有对应状态 → 已回退空串（R114）`);
+  return '""';
+}
+
+function kotlinCondExpr(expr: string, ctx?: ComposeCtx, loop?: { itemKey: string; indexKey?: string }): string {
+  // R114：条件里引用了原生端不存在的标识符 → 回退为 true（保留内容）并告警，避免整页编译失败
+  {
+    const ids = [...expr.matchAll(/(?<![.\w$])([A-Za-z_$][\w$]*)/g)].map((m) => m[1]);
+    const known = new Set((ctx?.states ?? []).map((st) => st.name));
+    if (loop) {
+      known.add(loop.itemKey);
+      if (loop.indexKey) known.add(loop.indexKey);
+    }
+    for (const k of ['true', 'false', 'Math', 'String', 'Number', 'stateStore']) known.add(k);
+    const unknown = ids.filter((id) => !known.has(id));
+    if (unknown.length > 0 && ctx) {
+      ctx.warnings?.push?.(`条件「${expr.slice(0, 40)}」引用了原生端不存在的标识符（${unknown.join(', ')}）→ 按 true 处理（R114）`);
+      return 'true';
+    }
+  }
   // R78 续（G12）：对象字段条件 → 非空判断
   const f = expr.match(/^__vrnField__:(\w+):(\w+)$/);
   if (f) return `vrnField(${f[1]}, "${f[2]}").isNotEmpty()`;
@@ -966,7 +993,7 @@ function emitNode(node: IrNode, ctx: ComposeCtx, depth: number, loop?: { itemKey
   // v-if → Kotlin if 包裹（表达式为双端兼容子集 ==/!=/&&/||/!，=== / !== 由 kotlinCondExpr 归一）
   if (node.condition && node.type !== 'root') {
     return (
-      pad + 'if (' + kotlinCondExpr(node.condition) + ') {\n' +
+      pad + 'if (' + kotlinCondExpr(node.condition, ctx, loop) + ') {\n' +
       emitNodeInner(node, ctx, depth + 1, loop, useParamModifier, parentStretch) +
       '\n' + pad + '}\n'
     );
@@ -1121,7 +1148,7 @@ function emitNodeInner(node: IrNode, ctx: ComposeCtx, depth: number, loop?: { it
         const segs = p.bindParts
           .map((seg): string => {
             if ('text' in seg) return String(seg.text).replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/\$/g, '${\'$\'}').replace(/\n/g, '\\n');
-            if ('bind' in seg) return '${' + loopField(seg.bind, loop) + '}';
+            if ('bind' in seg) return '${' + safeBind(seg.bind, ctx, loop) + '}';
             if ('fieldOf' in seg)
               return (
                 '${vrnField(' +
@@ -1150,7 +1177,7 @@ function emitNodeInner(node: IrNode, ctx: ComposeCtx, depth: number, loop?: { it
       } else if (p.bindExpr !== undefined) {
         textExpr = kotlinStringExpr(p.bindExpr);
       } else if (p.bind !== undefined) {
-        textExpr = '"${' + loopField(p.bind, loop) + '}"';
+        textExpr = '"${' + safeBind(String(p.bind), ctx, loop) + '}"';
       } else if (p.ref !== undefined) {
         textExpr = '"${' + loopField(p.ref, loop) + '}"';
       } else {

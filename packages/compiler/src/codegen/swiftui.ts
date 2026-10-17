@@ -298,6 +298,8 @@ interface Ctx {
   warnings: string[];
   /** 节点路径（warning 定位，如 ui[0].children[1]） */
   path: string;
+  /** R114：当前页面状态名集合（条件兜底用） */
+  stateNames?: Set<string>;
   /** R-G2：父容器 gap 透传给子项（仅 <template> 来源的单 condition 子项） */
   inheritGap?: number;
   /** M4a：页面运行时引用表达式（Runtime.shared / Runtime.forPage("<id>")） */
@@ -521,14 +523,21 @@ function emitNode(node: IrNode, ctx: Ctx): string {
   if (node.condition) {
     const L = ctx.level;
     const inner = emitNodeInner(node, ctx);
-    const swiftCond = swiftCondExpr(node.condition);
+    const known = ctx.stateNames ?? new Set<string>();
+    const swiftCond = swiftCondExpr(node.condition, known);
     return `${indent(L)}if ${swiftCond} {\n${inner}\n${indent(L)}}`;
   }
   return emitNodeInner(node, ctx);
 }
 
 /** JS 条件表达式 → Swift 兼容：===/!== 为 JS 严格比较，Swift 用 ==/!=；字符串字面量单引号 → 双引号 */
-function swiftCondExpr(expr: string): string {
+function swiftCondExpr(expr: string, known?: Set<string>): string {
+  // R114：条件引用原生端不存在的标识符 → true（保留内容），避免整页编译失败
+  if (known) {
+    const ids = [...expr.matchAll(/(?<![.\w$])([A-Za-z_$][\w$]*)/g)].map((m) => m[1]);
+    const unknown = ids.filter((id) => !known.has(id) && !['true', 'false', 'Math', 'String', 'Number'].includes(id));
+    if (unknown.length > 0) return 'true';
+  }
   // R78 续（G12）：对象字段条件 → 非空判断
   const f = expr.match(/^__vrnField__:(\w+):(\w+)$/);
   if (f) return `!vrnField(${f[1]}, "${f[2]}").isEmpty`;
@@ -626,6 +635,7 @@ function emitNodeInner(node: IrNode, ctx: Ctx): string {
           parentAxis: 'column',
           level: L + 1,
           definiteHeight: true, // root 撑满全屏 → 子项建议高度确定（R-H3 可分配）
+          stateNames: ctx.stateNames,
           warnings: ctx.warnings,
           path: `${ctx.path}[${i}]`,
           inheritGap: gapInheritFor(c, props.gap, node.children ?? []),
@@ -1170,6 +1180,7 @@ export function generateScreenSource(
     bindingMode?: 'external';
   } = {},
 ): string {
+  const __stateNames = new Set((screen.state ?? []).map((st) => st.name));
   const rt = opts.runtime ?? 'Runtime.shared';
   // R42：色板存在时颜色/字体走 Theme token；R43：frame 走 View 扩展短调用
   currentColorNames = opts.theme?.colorNames;
@@ -1186,6 +1197,7 @@ export function generateScreenSource(
   // R-PAGESCROLL：根容器始终为可滚动视口（见 emitNode root 分支），无需内容高度启发式
   const dataProps: string[] = [];
   const body = emitNode(screen.ui, {
+      stateNames: __stateNames,
     parentAxis: 'column',
     level: 1,
     definiteHeight: true, // root 撑满全屏（maxHeight:.infinity）→ 根容器高度确定
