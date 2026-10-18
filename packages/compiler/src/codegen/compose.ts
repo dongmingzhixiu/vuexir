@@ -407,12 +407,38 @@ class NavTest {
 
 /* ================= IR → Compose 生成 ================= */
 
+/** R-THEME-ANDROID：项目 tokens.css 的 var(--x) 表（默认皮肤 warm 优先，后块不覆盖） */
+let currentCssVars: Map<string, string> | undefined;
+
+function loadCssVarsAndroid(root: string): Map<string, string> {
+  const map = new Map<string, string>();
+  const roots = [join(root, 'src/styles/tokens.css'), join(root, 'src/tokens.css'), join(root, 'styles/tokens.css')];
+  for (const p of roots) {
+    if (!existsSync(p)) continue;
+    const css = readFileSync(p, 'utf-8');
+    for (const m of css.matchAll(/(--[\w-]+)\s*:\s*([^;{}]+);/g)) {
+      // 首个值优先（:root/.skin-warm 块在前 → 默认皮肤色）
+      if (!map.has(m[1])) map.set(m[1], m[2].trim());
+    }
+  }
+  return map;
+}
+
 /**
  * 颜色 → Compose Color 表达式。
  * 支持 #rgb/#rrggbb 与 rgb()/rgba()（rgba 必须带 alpha，否则会拼出 `0xFFRGBA(...)` 这种非法字面量）。
+ * R-THEME-ANDROID：var(--x) → 解析 tokens.css 值（默认皮肤）。
  */
 function colorExpr(c: string): string {
   const raw = c.trim();
+  if (raw.startsWith('var(')) {
+    const m = raw.match(/^var\(\s*(--[\w-]+)/);
+    if (m && currentCssVars) {
+      const v = currentCssVars.get(m[1]);
+      if (v !== undefined) return colorExpr(v);
+    }
+    return 'Color(0xFF000000)';
+  }
   const fn = raw.match(/^rgba?\(([^)]+)\)$/i);
   if (fn) {
     const parts = fn[1].split(',').map((t) => Number(t.trim()));
@@ -459,9 +485,15 @@ function safeBind(name: string, ctx: ComposeCtx, loop?: { itemKey: string; index
 }
 
 function kotlinCondExpr(expr: string, ctx?: ComposeCtx, loop?: { itemKey: string; indexKey?: string }): string {
+  // R-ELSE-AND：v-else 下沉互补状态（_vrnE#）在组件内不可求值 → true（R15 恒显语义，对位 iOS；否则未定义标识符编译失败）
+  if (/^_vrnE\d+$/.test(expr.trim())) return 'true';
   // R128：下沉的条件状态 → 判真
   const sunk = expr.match(/^__vrnCond:(\w+)$/);
-  if (sunk) return `vrnTruthy(${sunk[1]}.toString())`;
+  if (sunk) {
+    // v-else 互补状态下沉为 _vrnE# → 组件内不可求值，恒显（R15，对位 iOS）
+    if (/^_vrnE\d+$/.test(sunk[1])) return 'true';
+    return `vrnTruthy(${sunk[1]}.toString())`;
+  }
   // R114：条件里引用了原生端不存在的标识符 → 回退为 true（保留内容）并告警，避免整页编译失败
   {
     // 先剥掉字符串字面量，避免把 "success" 之类当成标识符
@@ -1029,6 +1061,8 @@ function subtreeHasWeight(node: IrNode): boolean {
 function emitNodeInner(node: IrNode, ctx: ComposeCtx, depth: number, loop?: { itemKey: string; indexKey?: string }, useParamModifier = false, parentStretch = false): string {
   const pad = '  '.repeat(depth);
   const p = (node.props ?? {}) as IrProps;
+  /** R-COMP-ROOT-ABS：组件根（useParamModifier && depth===1）去掉 Modifier.align（顶层无 BoxScope，编译非法）；保留 offset 平移 */
+  const absM = (pp: IrProps): string[] => (useParamModifier && depth <= 2 ? absModifiers(pp).filter((m) => !m.includes('.align(')) : absModifiers(pp));
   const alphaMod = alphaModifier(p);
   const alphaArr = alphaMod ? [alphaMod] : [];
   /** 容器类型：存在 absolute 子节点 → Box（ZStack 语义，对位 iOS）；否则按 flexDirection */
@@ -1135,7 +1169,7 @@ function emitNodeInner(node: IrNode, ctx: ComposeCtx, depth: number, loop?: { it
         [
           ...stretchModifiers(parentStretch, node),
           ...sizeModifiers(p),
-          ...absModifiers(p),
+          ...absM(p),
           ...clipModifiers(p),
           ...groupBackground(node, p),
           ...borderModifiers(p),
@@ -1222,7 +1256,7 @@ function emitNodeInner(node: IrNode, ctx: ComposeCtx, depth: number, loop?: { it
       return out;
     }
     case 'button': {
-      const chain = modChain([...stretchModifiers(parentStretch, node), ...sizeModifiers(p), ...absModifiers(p), ...clipModifiers(p), ...visualModifiers(p), ...borderModifiers(p), ...paddingModifiers(p), ...alphaArr, ...transformModifiers(p)], pad + '            ');
+      const chain = modChain([...stretchModifiers(parentStretch, node), ...sizeModifiers(p), ...absM(p), ...clipModifiers(p), ...visualModifiers(p), ...borderModifiers(p), ...paddingModifiers(p), ...alphaArr, ...transformModifiers(p)], pad + '            ');
       // R108：动态按钮文案（props.bind）优先；Kotlin 里用字符串模板插值
       const label = p.bind !== undefined ? String(p.bind) : (p.label ?? '');
       const click = kotlinClickAction(p, ctx, loop);
@@ -1246,7 +1280,7 @@ function emitNodeInner(node: IrNode, ctx: ComposeCtx, depth: number, loop?: { it
         ctx.warnings.push('input: v-model「' + String(st) + '」非页面级 string 状态（Android 暂只支持该形态），已生成占位注释');
         return pad + '// input: v-model ' + kotlinStr(String(st)) + ' 未支持（Android 仅页面级 string state）';
       }
-      const chain = modChain([...stretchModifiers(parentStretch, node), ...sizeModifiers(p), ...absModifiers(p), ...paddingModifiers(p), ...alphaArr, ...transformModifiers(p)], pad + '            ');
+      const chain = modChain([...stretchModifiers(parentStretch, node), ...sizeModifiers(p), ...absM(p), ...paddingModifiers(p), ...alphaArr, ...transformModifiers(p)], pad + '            ');
       const ts: string[] = [];
       if (p.fontSize !== undefined) ts.push('fontSize = ' + sp(p.fontSize));
       if (p.color !== undefined) ts.push('color = ' + colorExpr(p.color));
@@ -1260,7 +1294,7 @@ function emitNodeInner(node: IrNode, ctx: ComposeCtx, depth: number, loop?: { it
       return out;
     }
     case 'image': {
-      const chain = modChain([...stretchModifiers(parentStretch, node), ...sizeModifiers(p), ...absModifiers(p), ...clipModifiers(p), ...visualModifiers(p), ...paddingModifiers(p), ...alphaArr, ...transformModifiers(p)], pad + '            ');
+      const chain = modChain([...stretchModifiers(parentStretch, node), ...sizeModifiers(p), ...absM(p), ...clipModifiers(p), ...visualModifiers(p), ...paddingModifiers(p), ...alphaArr, ...transformModifiers(p)], pad + '            ');
       if (p.src) ctx.warnings.push('image src="' + p.src + '" 资源桥未实现（A5 TODO），生成占位 Box');
       let out = pad + '// image src=' + (p.src ?? '') + '（A5 资源桥 TODO）\n';
       out += pad + 'Box(\n' + pad + '    modifier = Modifier' + chain + ',\n' + pad + ') {}';
@@ -1338,7 +1372,7 @@ function emitNodeInner(node: IrNode, ctx: ComposeCtx, depth: number, loop?: { it
         ...stretchModifiers(parentStretch, node),
         ...sizeModifiers(p),
         flexModifier(p),
-        ...absModifiers(p),
+        ...absM(p),
         ...alphaArr,
         ...transformModifiers(p),
       ].concat(click ? ['Modifier.clickable { ' + click + ' }'] : []);
@@ -1402,9 +1436,30 @@ function loadComponents(pageFile: string): Record<string, string> {
 }
 
 /** 收集组件 IR 中的 ref 参数名（text props.ref → 组件函数参数） */
+/** R-COMP-PARAMS：表达式 → 根标识符（dialog.title → dialog；!allOpen → allOpen；__vrnField__:dialog:title → dialog；下沉条件 → ''）对位 iOS swiftui.ts rootIdent */
+function rootIdent(expr: string): string {
+  const e = expr.replace(/^!/, '');
+  const f = e.match(/^__vrnField__:(\w+)/);
+  if (f) return f[1];
+  if (e.startsWith('__vrnCond:') || e.startsWith('__vrnField__:')) return '';
+  const id = e.match(/^([A-Za-z_$][\w$]*)/);
+  return id ? id[1] : '';
+}
+
+/** 收集组件 IR 树中 text ref / v-if 条件 / v-for 列表 → prop 名（组件 Composable 参数集合，对位 iOS） */
 function collectRefs(node: IrNode, acc: Set<string> = new Set()): Set<string> {
-  const p = node.props as IrProps;
-  if (p.ref) acc.add(p.ref);
+  if (node.type === 'text' && node.props?.ref !== undefined) {
+    const r = rootIdent(node.props.ref);
+    if (r) acc.add(r);
+  }
+  if (node.condition) {
+    const r = rootIdent(node.condition);
+    if (r) acc.add(r);
+  }
+  if (node.type === 'for' && node.vfor?.listState && !/^_vrnE\d+$/.test(node.vfor.listState)) {
+    const r = rootIdent(node.vfor.listState);
+    if (r) acc.add(r);
+  }
   for (const c of node.children ?? []) collectRefs(c, acc);
   return acc;
 }
@@ -1635,6 +1690,8 @@ export interface RunTabsOptions {
 }
 
 function runTabs(appDir: string, opts: RunTabsOptions = {}): string {
+  // R-THEME-ANDROID：加载项目 tokens.css var 表（colorExpr var(--x) 解析用）
+  currentCssVars = loadCssVarsAndroid(findProjectRoot(appDir));
   const routerSrc = readFileSync(opts.routerFile ?? join(appDir, 'router.ts'), 'utf-8');
   const { tabs, details, warnings: routerWarnings } = parseRouter(routerSrc, findProjectRoot(appDir), opts.routerFile ?? join(appDir, 'router.ts'));
   for (const w of routerWarnings) console.log(`[gen-android] 路由提示: ${w}`);

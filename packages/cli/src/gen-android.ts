@@ -38,10 +38,13 @@ export function generateAndroid(opts: GenerateOptions = {}): string {
   if (/\.(ts|js|mts)$/.test(input) && existsSync(input)) {
     return runTabs(dirname(input), { routerFile: input, outDirRoot: opts.outDirRoot, projectName: opts.projectName, bundleId: opts.bundleId, renderGradle: (p, b) => buildGradle(b), templateVersion: TEMPLATE_VERSION });
   }
-  if (!existsSync(join(input, 'router.ts'))) {
-    throw new Error(`[vrn] ${input} 缺少 router.ts（多页模式需要 router.ts；单页请用 gen-ios 路径或补 router.ts）`);
+  // 目录入口：兼容 router.ts / index.ts（Vue 工程标准 src/router/index.ts）
+  const routerFile = ['router.ts', 'router.js', 'index.ts', 'index.js'].find((f) => existsSync(join(input, f)));
+  if (!routerFile) {
+    throw new Error(`[vrn] ${input} 缺少 router.ts/index.ts（多页模式需要路由文件；单页请用 gen-ios 路径或补 router.ts）`);
   }
   return runTabs(input, {
+    routerFile: join(input, routerFile),
     outDirRoot: opts.outDirRoot,
     projectName: opts.projectName,
     bundleId: opts.bundleId,
