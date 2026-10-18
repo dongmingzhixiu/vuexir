@@ -23,7 +23,7 @@
 ### 路径 A：从零新建（推荐）
 
 ```bash
-npx create-vuexir my-app        # 生成工程骨架（src/router.ts + pages + vrn.config.ts）
+npx create-vuexir my-app        # 生成工程骨架（src/router.ts + pages + vuexir.config.ts）
 cd my-app
 npm install
 npm i -D @dongmingzhixiu/vuexir # 安装 CLI（会带上 compiler + templates）
@@ -38,7 +38,7 @@ cd your-vue-project
 npm i -D @dongmingzhixiu/vuexir
 ```
 
-在项目根新建 `vrn.config.ts`：
+在项目根新建 `vuexir.config.ts`：
 
 ```ts
 export default {
@@ -91,13 +91,13 @@ your-vue-project/
     router.ts            # 多页入口（tab / push 路由）
     pages/*.vue          # 页面（普通 Vue SFC）
     components/*.vue     # 组件 → 生成独立原生 View
-  vrn.config.ts
+  vuexir.config.ts
   native/                # 生成物（建议 gitignore）
     ios/<ProjectName>/       ← Xcode 工程（含 .vrn/manifest.json）
     android/<ProjectName>/   ← Gradle 工程
 ```
 
-### vrn.config.ts 字段
+### vuexir.config.ts 字段
 
 | 字段 | 类型 | 默认 | 说明 |
 |---|---|---|---|

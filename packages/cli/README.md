@@ -8,7 +8,7 @@ npx vrn doctor           # 环境自检：Xcode / xcodegen / JDK / ANDROID_HOME 
 npx vrn preview          # 多页预览器（P3 起由 @vrn/vite-plugin 承载）
 ```
 
-配置（`vrn.config.ts`，P1 落地）：
+配置（`vuexir.config.ts`，P1 落地）：
 
 ```ts
 export default {

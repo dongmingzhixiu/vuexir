@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * create-vuexir —— 脚手架：npx create-vuexir my-app
- * 生成最小可跑工程：src/router.ts + src/pages/Home.vue + About.vue + vrn.config.ts + package.json
+ * 生成最小可跑工程：src/router.ts + src/pages/Home.vue + About.vue + vuexir.config.ts + package.json
  * 之后：npm i && npx vuexir gen ios|android
  */
 import { cpSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
@@ -13,7 +13,7 @@ const here = dirname(fileURLToPath(import.meta.url));
 const tpl = join(here, '..', 'templates', 'app');
 
 if (process.argv.includes('--help') || process.argv.includes('-h')) {
-  console.log('用法：npx create-vuexir [目录名]\n生成 Vue SFC 工程骨架（含 router.ts 与 vrn.config.ts），随后 npx vuexir gen ios|android');
+  console.log('用法：npx create-vuexir [目录名]\n生成 Vue SFC 工程骨架（含 router.ts 与 vuexir.config.ts），随后 npx vuexir gen ios|android');
   process.exit(0);
 }
 if (existsSync(target)) {
@@ -34,7 +34,7 @@ const pascal = name
   .filter(Boolean)
   .map((seg) => seg.charAt(0).toUpperCase() + seg.slice(1))
   .join('') || 'MyApp';
-const cfgPath = join(target, 'vrn.config.ts');
+const cfgPath = join(target, 'vuexir.config.ts');
 writeFileSync(
   cfgPath,
   readFileSync(cfgPath, 'utf-8')

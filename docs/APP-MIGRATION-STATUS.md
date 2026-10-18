@@ -25,7 +25,7 @@ meta: { tab: true, title: '首页' },
 
 需要支持：
 1. 动态 import 组件（`() => import('...')`）→ 解析出路径并补 `import` 表
-2. `@/` 别名 → `<appDir>/src/`（可配置：`vrn.config.ts` 的 `alias`）
+2. `@/` 别名 → `<appDir>/src/`（可配置：`vuexir.config.ts` 的 `alias`）
 3. 多行路由对象（按 `{}` 配平扫描，而非整行正则）
 4. 路径参数（`/add/:id?`、`/detail/:id`）→ 生成原生路由时降级为无参路径 + 警告（R15）
 

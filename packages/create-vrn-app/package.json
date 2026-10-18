@@ -1,7 +1,7 @@
 {
   "name": "create-vuexir",
-  "version": "0.5.7",
-  "description": "脚手架：npx create-vrn-app my-app（Vue SFC + router.ts + vrn.config.ts）",
+  "version": "0.6.0",
+  "description": "脚手架：npx create-vrn-app my-app（Vue SFC + router.ts + vuexir.config.ts）",
   "type": "module",
   "license": "MIT",
   "bin": {

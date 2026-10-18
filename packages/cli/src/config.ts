@@ -1,9 +1,9 @@
 /**
- * @dongmingzhixiu/vuexir 配置解析（R-PKG：CLI 只认「项目根 + vrn.config」两个事实来源）
+ * @dongmingzhixiu/vuexir 配置解析（R-PKG：CLI 只认「项目根 + vuexir.config」两个事实来源）
  *
  * 解析顺序（后者覆盖前者）：
  *   1. 内置默认值（projectRoot = process.cwd()，outDir = <root>/native）
- *   2. vrn.config.ts / vrn.config.mts / vrn.config.js / vrn.config.mjs / vrn.config.json
+ *   2. vuexir.config.ts / .mts / .js / .mjs / .json（旧名 vuexir.config.* 仍兼容）
  *   3. 命令行参数（--out / --entry / --name / --bundle 等）
  *
  * 兼容期：未提供 vrn.config 时，若 <root>/router.ts 或 <root>/App.vue 存在，按「目录即项目」处理；
@@ -30,9 +30,9 @@ export interface VrnConfig {
   };
 }
 
-const CONFIG_FILES = ['vuexir.config.ts', 'vuexir.config.mts', 'vuexir.config.js', 'vuexir.config.mjs', 'vuexir.config.json', 'vrn.config.ts', 'vrn.config.mts', 'vrn.config.js', 'vrn.config.mjs', 'vrn.config.json'];
+const CONFIG_FILES = ['vuexir.config.ts', 'vuexir.config.mts', 'vuexir.config.js', 'vuexir.config.mjs', 'vuexir.config.json', 'vuexir.config.ts', 'vrn.config.mts', 'vrn.config.js', 'vrn.config.mjs', 'vrn.config.json'];
 
-/** 读取 vrn.config（json 直接解析；ts/mjs 用动态 import，失败则忽略并提示） */
+/** 读取 vuexir.config（JSON 直接解析；ts/mjs 先用 esbuild 转译再 import） */
 export async function loadConfig(projectRoot: string): Promise<Partial<VrnConfig>> {
   for (const file of CONFIG_FILES) {
     const p = join(projectRoot, file);
@@ -40,6 +40,14 @@ export async function loadConfig(projectRoot: string): Promise<Partial<VrnConfig
     try {
       if (file.endsWith('.json')) {
         return JSON.parse(readFileSync(p, 'utf-8')) as Partial<VrnConfig>;
+      }
+      // R144：配置文件是 TS 时，Node 无法直接 import → 先用 esbuild 转成 ESM 再加载
+      if (/\.m?ts$/.test(file)) {
+        const { transformSync } = await import('esbuild');
+        const js = transformSync(readFileSync(p, 'utf-8'), { loader: 'ts', format: 'esm', target: 'es2020' }).code;
+        const url = `data:text/javascript;base64,${Buffer.from(js, 'utf-8').toString('base64')}`;
+        const mod = (await import(url)) as { default?: Partial<VrnConfig> };
+        return mod.default ?? {};
       }
       const mod = (await import(`file://${p}`)) as { default?: Partial<VrnConfig> };
       return mod.default ?? {};
@@ -100,7 +108,7 @@ export function resolveEntry(cfg: VrnConfig): { entry: string; multiPage: boolea
   }
   throw new Error(
     `未找到入口（多页 src/router.ts 或单页 src/App.vue）。已尝试：\n  ${candidates.join('\n  ')}\n` +
-      `可在 vrn.config.ts 中用 entry 显式指定。`,
+      `可在 vuexir.config.ts 中用 entry 显式指定。`,
   );
 }
 

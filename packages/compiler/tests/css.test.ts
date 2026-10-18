@@ -30,11 +30,13 @@ describe('CSS 子集解析（R15 降级警告 + 新映射 · 2026 审计修复�
     expect(warnings.some((w) => w.includes('无单位比值'))).toBe(true);
   });
 
-  it('named/var() 颜色拒绝并警告（不产出非法原生代码）', () => {
+  it('named 颜色拒绝并警告；var() 保留（交给 codegen 按 tokens 解析）', () => {
     const warnings: string[] = [];
     const r = parseCss('.a { color: red; background: var(--bg); }', warnings);
-    expect(Object.keys(r.classProps.get('a') ?? {}).length).toBe(0);
-    expect(warnings.filter((w) => w.includes('仅支持 #rgb')).length).toBe(2);
+    const props = r.classProps.get('a') ?? {};
+    expect(props.color).toBeUndefined();
+    expect(props.background).toBe('var(--bg)');
+    expect(warnings.filter((w) => w.includes('仅支持 #rgb')).length).toBe(1);
   });
 
   it('border 非法颜色 → 拒绝（border 简写颜色同样校验）', () => {

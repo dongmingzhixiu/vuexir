@@ -32,7 +32,7 @@ my-app/
   src/router.ts        # 多页路由：meta.tab=true → 底部 tab，其余为 push 二级页
   src/pages/*.vue      # 页面（写普通 Vue SFC）
   src/components/*.vue # 组件（生成独立原生 View）
-  vrn.config.ts        # entry / outDir / projectName / bundleId
+  vuexir.config.ts        # entry / outDir / projectName / bundleId
   native/ios/<Name>/   # 生成的 Xcode 工程（含 .vrn/manifest.json）
   native/android/<Name>/
 ```
@@ -44,7 +44,7 @@ npm i -D @dongmingzhixiu/vuexir
 ```
 
 ```ts
-// vrn.config.ts
+// vuexir.config.ts
 export default {
   entry: 'src/router.ts',   // 或 'src/App.vue' 单页
   outDir: 'native',
@@ -85,7 +85,7 @@ npm run build:packages       # 构建各包 dist（发布前）
 ```
 
 - 样例即文档：`examples/vuexir-demo`（组件库演示，7 tab + 81 二级页）、`examples/async`（Promise / fetch / setTimeout / 协程）
-- **使用教程（规格版）：`docs/USAGE.md`** —— 环境要求 / 三条使用路径 / `vrn.config` 字段 / 页面支持矩阵 / 命令参考 / 常见问题
+- **使用教程（规格版）：`docs/USAGE.md`** —— 环境要求 / 三条使用路径 / `vuexir.config` 字段 / 页面支持矩阵 / 命令参考 / 常见问题
 - 规则与边界：`docs/RULES.md`（R1–R72）、`docs/ROADMAP-UNSUPPORTED.md`（M1–M10 里程碑）
 - 审计与修复记录：`docs/AUDIT-2026-10.md`；打包路线：`docs/PACKAGING-PLAN.md`
 

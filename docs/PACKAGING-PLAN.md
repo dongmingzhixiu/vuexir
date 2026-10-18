@@ -36,7 +36,7 @@ examples/           vuexir-demo / async（由 compiler/samples 迁入）
 - `OUT_ROOT = join(ROOT, 'generated/<platform>')` → 用户配置 `outDir`（默认 `<projectRoot>/native`）
 - 样例定位 `join(process.cwd(), arg, 'router.ts')` → 保留（对用户工程成立），并新增 `entries` 配置项显式指定页面/路由
 
-**用户配置（`vrn.config.ts`，P1 支持 js/json + ts 二选一）**
+**用户配置（`vuexir.config.ts`，P1 支持 js/json + ts 二选一）**
 
 ```ts
 export default {
@@ -67,13 +67,13 @@ vrn doctor                                                     # 环境自检（
 - ✅ 文件搬迁：`compiler/src → packages/compiler/src`、`compiler/scripts → packages/cli/src`、`compiler/tests → packages/compiler/tests`、`compiler/samples → examples/`；`compiler/` 仅剩 `generated/`（构建产物）
 - ✅ 导入修正：CLI 侧 `../src/* → ../../compiler/src/*`；测试样例路径 `../samples/* → ../../../examples/*`
 - ✅ 路径解耦：CLI 与 compose 的 `ROOT/OUT_ROOT/samples` 改为可注入（`VRN_OUT_DIR` / `VRN_SAMPLES_ROOT`，默认回落仓库内旧路径）
-- ✅ 新增 `packages/cli/src/config.ts`：`vrn.config.{ts,mts,js,mjs,json}` 加载 + 默认值合并 + 入口解析（`src/router.ts` / `src/App.vue`）+ 工程名推导 + `platformOutDir()`
+- ✅ 新增 `packages/cli/src/config.ts`：`vuexir.config.{ts,mts,js,mjs,json}` 加载 + 默认值合并 + 入口解析（`src/router.ts` / `src/App.vue`）+ 工程名推导 + `platformOutDir()`
 - ✅ `packages/compiler/src/index.ts` 真实导出（纯函数 API 汇总，标注「零 IO」约束）
 - ✅ 根脚本与 `scripts/ios-run.sh`、`scripts/android-run.sh` 指向新布局（用户可见行为不变）
 - ✅ 全量回归：`vue-tsc` 0 error、`vitest` 145/145、`gen:ios`/`gen:android` 两样例、`gradle assembleDebug` BUILD SUCCESSFUL、`swiftc -typecheck` 两样例 0 error
 
 **P1 已完成（2026-10 · CLI 与配置打通）**
-- ✅ `packages/cli/src/cli.ts`：`gen|build|doctor|help` 子命令 + 参数解析（`--out/--name/--bundle/--entry/--root/--run`），配置合并（默认值 ← `vrn.config.*` ← CLI 参数）
+- ✅ `packages/cli/src/cli.ts`：`gen|build|doctor|help` 子命令 + 参数解析（`--out/--name/--bundle/--entry/--root/--run`），配置合并（默认值 ← `vuexir.config.*` ← CLI 参数）
 - ✅ `packages/cli/bin/vrn.mjs`（有 `dist/cli.js` 时用编译产物，否则回退 vite-node）+ `packages/cli/src/main.ts`
 - ✅ 生成器函数化：`generateIos(opts)` / `generateAndroid(opts)`；`VRN_NO_AUTO_RUN` 开关保证「旧脚本直接执行」与「CLI 复用函数」两种用法并存（踩坑：ES 模块静态导入会先于模块体求值 → CLI 必须**动态导入**生成器）
 - ✅ 入口解析：位置参数（样例名/目录/.vue）→ `{dir, entry, multiPage}`，生成器接收入口**目录**；`runMain` 支持绝对路径
@@ -83,9 +83,9 @@ vrn doctor                                                     # 环境自检（
 **P1 端到端验证**
 - 仓库内：`npm run gen:ios|gen:android` 行为不变；`gradle assembleDebug` BUILD SUCCESSFUL；`vitest` 145/145；`vue-tsc` 0 error
 - 工具链形态：`vrn gen android examples/async --out /tmp/vrn-out` → `/tmp/vrn-out/android/Async`；`vrn gen ios examples/async --out /tmp/vrn-out` → `/tmp/vrn-out/ios/Async`
-- **用户工程形态**：临时工程 `/tmp/vrn-user`（`src/router.ts` + `vrn.config.ts`）→ `vrn gen ios|android --root /tmp/vrn-user` → `native/ios/MyUserApp`（`PRODUCT_BUNDLE_IDENTIFIER: com.example.userapp`）+ `native/android/MyUserApp`
+- **用户工程形态**：临时工程 `/tmp/vrn-user`（`src/router.ts` + `vuexir.config.ts`）→ `vrn gen ios|android --root /tmp/vrn-user` → `native/ios/MyUserApp`（`PRODUCT_BUNDLE_IDENTIFIER: com.example.userapp`）+ `native/android/MyUserApp`
 
-**P1 剩余（转入 P4 处理）**：`npm install` 建立 workspace 链接并把 CLI 相对导入切到 `@vrn/compiler`（需网络安装；当前用相对路径同样可运行）；`vrn.config` 的自动化集成测试（现为手工端到端验证）。
+**P1 剩余（转入 P4 处理）**：`npm install` 建立 workspace 链接并把 CLI 相对导入切到 `@vrn/compiler`（需网络安装；当前用相对路径同样可运行）；`vuexir.config` 的自动化集成测试（现为手工端到端验证）。
 
 ## 三、P2 —— 模板包 + 清单 + doctor（✅ 主体完成）
 
@@ -123,7 +123,7 @@ vrn({ entry, outDir, platform: 'ios', watch: true })
 - `handleHotUpdate` + 自定义命令 `vrn:gen`：只重生成受影响页面（依赖 manifest）
 - `closeBundle`：可选触发一次全量 codegen（不调用 xcodebuild/gradle，交由 `vrn build --run`）
 
-`create-vrn-app`：模板 = Vue 工程骨架（`src/pages/*.vue` + `router.ts` + `vrn.config.ts` + npm scripts），`npx create-vrn-app my-app` 后 `npm run native:ios` 直接出工程。
+`create-vrn-app`：模板 = Vue 工程骨架（`src/pages/*.vue` + `router.ts` + `vuexir.config.ts` + npm scripts），`npx create-vrn-app my-app` 后 `npm run native:ios` 直接出工程。
 
 ## 五、P4 —— 发布与示例仓库
 
@@ -138,7 +138,7 @@ vrn({ entry, outDir, platform: 'ios', watch: true })
 | 风险 | 对策 |
 |---|---|
 | 搬迁导致产物回归 | P1 出口用「生成产物逐字节等价」判定；先搬路径不改逻辑 |
-| 用户工程与仓库内开发双形态漂移 | CLI 只认 `vrn.config.ts` + cwd，仓库脚本改为调用同一 CLI |
+| 用户工程与仓库内开发双形态漂移 | CLI 只认 `vuexir.config.ts` + cwd，仓库脚本改为调用同一 CLI |
 | 模板与工具链版本错配 | manifest 记录 templateVersion + `vrn doctor` 校验 |
 | 平台工具链缺失导致体验断裂 | doctor 先行；`vrn build --run` 失败时原样透传平台日志尾部 |
 | npm 包体积 | 只发 `src`/`assets`（文本），`compiler/generated` 与 `examples` 不入包 |
@@ -178,7 +178,7 @@ vrn({ entry, outDir, platform: 'ios', watch: true })
 - 已补元数据：`license: MIT`、`engines.node >= 18`、`publishConfig.access = public`、cli 双 bin
 - 源码内包名引用已全部切换（8 个文件）
 
-**create-vuexir 已可用**（P3 完成项）：`node packages/create-vrn-app/bin/create.mjs <dir>` → 生成 `src/router.ts` + `pages/{Home,About}.vue` + `vrn.config.ts` + package.json（含 `native:gen` / `native:build` 脚本）；工程名按分段 PascalCase 推导（`my-vuexir-app → MyVuexirApp`）。实测：脚手架工程 → `vuexir gen ios|android` 双端产物正确（`PRODUCT_BUNDLE_IDENTIFIER: com.example.myvuexirapp`）。
+**create-vuexir 已可用**（P3 完成项）：`node packages/create-vrn-app/bin/create.mjs <dir>` → 生成 `src/router.ts` + `pages/{Home,About}.vue` + `vuexir.config.ts` + package.json（含 `native:gen` / `native:build` 脚本）；工程名按分段 PascalCase 推导（`my-vuexir-app → MyVuexirApp`）。实测：脚手架工程 → `vuexir gen ios|android` 双端产物正确（`PRODUCT_BUNDLE_IDENTIFIER: com.example.myvuexirapp`）。
 
 **仍待做（发布前必做）**：`dist` 构建（`tsc`/`tsup`）+ `exports` 指向 dist + `files` 白名单 → `npm pack --dry-run` → 用户终端 `npm publish --access public`（scope 包）后冒烟 `npm i @dongmingzhixiu/vuexir && npx vuexir gen ios`。
 

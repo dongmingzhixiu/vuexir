@@ -37,7 +37,7 @@ const SAMPLES_ROOT = (() => {
 const TOOLCHAIN_VERSION = '0.1.0';
 /** 样例根（可写副本：generateIos 可用 opts.samplesRoot 覆盖） */
 let SAMPLES_ROOT_MUT = SAMPLES_ROOT;
-/** CLI 注入的工程名/包名覆盖（vrn.config 的 projectName/bundleId） */
+/** CLI 注入的工程名/包名覆盖（vuexir.config 的 projectName/bundleId） */
 let FORCED_PROJECT_NAME: string | undefined;
 let FORCED_BUNDLE_ID: string | undefined;
 const DEFAULT_INPUT = join(SAMPLES_ROOT_MUT, 'vuexir-demo'); // 多页目录模式默认样例

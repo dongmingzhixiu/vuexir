@@ -1,6 +1,6 @@
 {
   "name": "@dongmingzhixiu/vuexir-vite-plugin",
-  "version": "0.5.7",
+  "version": "0.6.0",
   "description": "Vite 插件：多页预览中间件（/__vrn/*）+ IR 查看 + HMR 增量 codegen",
   "type": "module",
   "license": "MIT",
@@ -21,7 +21,7 @@
     "vue": "^3.4.0"
   },
   "dependencies": {
-    "@dongmingzhixiu/vuexir-compiler": "^0.5.4"
+    "@dongmingzhixiu/vuexir-compiler": "^0.6.0"
   },
   "engines": {
     "node": ">=18"

@@ -5,7 +5,7 @@
  *   vrn build ios|android [--run]        # gen + （--run 时）调用 xcodegen/xcodebuild | gradle
  *   vrn doctor                           # 环境自检
  *
- * 配置来源见 config.ts（vrn.config.* + CLI 覆盖）。生成器在导入前设置 VRN_NO_AUTO_RUN=1，
+ * 配置来源见 config.ts（vuexir.config.* + CLI 覆盖）。生成器在导入前设置 VRN_NO_AUTO_RUN=1，
  * 避免模块加载时的自动执行。
  */
 import { existsSync } from 'node:fs';
@@ -201,7 +201,7 @@ export async function run(argv: string[]): Promise<number> {
   vrn build ios|android [入口] [--run]      # 生成后可选调用平台构建
   vrn doctor                                 # 环境自检
 
-配置：<projectRoot>/vrn.config.ts（entry / outDir / projectName / bundleId）
+配置：<projectRoot>/vuexir.config.ts（entry / outDir / projectName / bundleId）
 `);
     return 0;
   }
