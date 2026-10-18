@@ -271,7 +271,10 @@ const HEX_COLOR = /^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/;
 const RGB_COLOR = /^rgba?\(\s*\d{1,3}\s*,\s*\d{1,3}\s*,\s*\d{1,3}(?:\s*,\s*[\d.]+)?\s*\)$/;
 
 function isColor(v: unknown): boolean {
-  return typeof v === 'string' && (HEX_COLOR.test(v) || RGB_COLOR.test(v));
+  return (
+    typeof v === 'string' &&
+    (HEX_COLOR.test(v) || RGB_COLOR.test(v) || /^var\([^)]*\)$/.test(v.trim()))
+  );
 }
 
 function isSize(v: unknown): v is Size {
@@ -378,14 +381,14 @@ const PROPS_VALIDATORS: Record<string, (v: unknown) => boolean> = {
 const NODE_ALLOWED_PROPS: Record<NodeType, string[]> = {
   root: ['width', 'height', 'background'],
   group: ['width', 'height', 'padding', 'gap', 'flex', 'flexDirection', 'justifyContent', 'alignItems', 'background', 'radius', 'borderWidth', 'borderColor', 'marginTopAuto', 'marginTop', 'marginLeftAuto', 'marginBottom', 'marginRight', 'marginLeft', 'borderSides', 'clip', 'onClick', 'onSet', 'position', 'absTop', 'absLeft', 'absRight', 'absBottom', 'transform', 'show', 'opacity', 'gridColumns'],
-  text: ['width', 'text', 'ref', 'bind', 'bindExpr', 'dynField', 'bindParts', 'fontSize', 'fontWeight', 'textAlign', 'lineHeight', 'color', 'padding', 'colorActive', 'marginLeftAuto', 'marginTop', 'colorDynamic', 'fontSizeDynamic', 'position', 'absTop', 'absLeft', 'absRight', 'absBottom', 'transform', 'show', 'flex', 'opacity', 'onClick', 'onSet', 'fieldOf'],
+  text: ['width', 'text', 'ref', 'bind', 'bindExpr', 'dynField', 'bindParts', 'fontSize', 'fontWeight', 'textAlign', 'lineHeight', 'color', 'padding', 'background', 'colorActive', 'marginLeftAuto', 'marginTop', 'colorDynamic', 'fontSizeDynamic', 'position', 'absTop', 'absLeft', 'absRight', 'absBottom', 'transform', 'show', 'flex', 'opacity', 'onClick', 'onSet', 'fieldOf'],
   image: ['width', 'height', 'src', 'objectFit', 'radius', 'borderSides', 'borderWidth', 'borderColor', 'clip', 'flex', 'marginTop', 'marginBottom', 'marginRight', 'marginLeft', 'position', 'absTop', 'absLeft', 'absRight', 'absBottom', 'transform', 'show', 'opacity'],
   button: ['width', 'height', 'label', 'bind', 'background', 'radius', 'borderWidth', 'borderColor', 'fontSize', 'fontWeight', 'color', 'flex', 'padding', 'marginTopAuto', 'marginTop', 'marginBottom', 'marginRight', 'marginLeft', 'borderSides', 'clip', 'onClick', 'onSet', 'colorDynamic', 'fontSizeDynamic', 'position', 'absTop', 'absLeft', 'absRight', 'absBottom', 'transform', 'show', 'pressBg', 'opacity'],
   input: ['width', 'height', 'value', 'placeholder', 'fontSize', 'color', 'background', 'padding', 'radius', 'borderWidth', 'borderColor', 'borderSides', 'clip', 'flex', 'marginTop', 'marginTopAuto', 'marginBottom', 'marginRight', 'marginLeft', 'onSet', 'colorDynamic', 'fontSizeDynamic', 'position', 'absTop', 'absLeft', 'absRight', 'absBottom', 'transform', 'show'],
-  scroll: ['width', 'height', 'padding', 'gap', 'flexDirection', 'background', 'showsIndicators', 'flex'],
-  spacer: ['width', 'height', 'flex'],
-  divider: ['width', 'height', 'background', 'borderWidth', 'borderColor', 'marginTop'],
-  component: ['name', 'attrs', 'flex', 'width', 'height', 'marginTop', 'marginTopAuto', 'marginLeftAuto', 'onClick'],
+  scroll: ['width', 'height', 'padding', 'gap', 'flexDirection', 'background', 'showsIndicators', 'flex', 'justifyContent', 'alignItems', 'radius', 'borderWidth', 'borderColor', 'marginTop', 'position', 'absTop', 'absLeft', 'absRight', 'absBottom', 'transform', 'show', 'opacity', 'borderSides', 'clip'],
+  spacer: ['width', 'height', 'flex', 'background', 'padding', 'radius', 'borderWidth', 'borderColor', 'marginTop', 'alignSelf', 'opacity'],
+  divider: ['width', 'height', 'background', 'borderWidth', 'borderColor', 'marginTop', 'marginBottom', 'marginLeft', 'marginRight', 'padding', 'radius', 'flex', 'opacity', 'position', 'absTop', 'absLeft', 'absRight', 'absBottom', 'transform', 'show'],
+  component: ['name', 'attrs', 'flex', 'width', 'height', 'marginTop', 'marginTopAuto', 'marginLeftAuto', 'marginBottom', 'marginLeft', 'marginRight', 'background', 'radius', 'borderWidth', 'borderColor', 'padding', 'position', 'absTop', 'absLeft', 'absRight', 'absBottom', 'transform', 'show', 'opacity', 'onClick'],
   for: ['flexDirection', 'gap', 'padding', 'background', 'flex', 'width', 'height', 'showsIndicators', 'borderSides', 'clip', 'position', 'absTop', 'absLeft', 'absRight', 'absBottom', 'transform', 'show'],
 };
 

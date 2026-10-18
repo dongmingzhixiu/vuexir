@@ -257,6 +257,17 @@ const RUNTIME_SWIFT = `final class Runtime {
         if name.contains("(") { ctx.evaluateScript(name) }
         else { ctx.evaluateScript("\\(name)()") }
     }
+
+    /// R-LOOPITEM：v-for 项点击时把当前 item 注入 JS 全局 __vrnLoop，
+    /// invoke 表达式里的循环变量引用（goDetail(row.item.id)）才能求值
+    func setLoopItem(_ value: Any) {
+        guard let json = try? JSONSerialization.data(withJSONObject: value),
+              let s = String(data: json, encoding: .utf8) else { return }
+        let escaped = s.replacingOccurrences(of: "\\\\", with: "\\\\\\\\")
+            .replacingOccurrences(of: "\\"", with: "\\\\\\"")
+            .replacingOccurrences(of: "\\n", with: "\\\\n")
+        ctx.evaluateScript("__vrnLoop = JSON.parse(\\"\\(escaped)\\")")
+    }
 }
 `;
 
@@ -505,7 +516,8 @@ function runOne(input: string): string | undefined {
   const themeTokens = collectTheme(screen.ui, ...components.map((c) => c.ui));
   const theme = buildTheme(themeTokens);
   const themeSrc = generateThemeSource(theme);
-  const swift = generateScreenSource(screen, { warnings: genWarnings, theme });
+  const cssVars = loadCssVars(input);
+  const swift = generateScreenSource(screen, { warnings: genWarnings, theme, cssVars });
   if (genWarnings.length > 0) {
     console.log(`[gen-ios] 布局降级提示（${genWarnings.length} 条，R-H3/H4/H5）:`);
     for (const w of genWarnings) console.log(`  - ${w}`);
@@ -519,7 +531,7 @@ function runOne(input: string): string | undefined {
   const compFiles: { name: string; bytes: number }[] = [];
   for (const comp of components) {
     const compWarnings: string[] = [];
-    const src = generateComponentSource(comp.name, comp.ui, { warnings: compWarnings, theme });
+    const src = generateComponentSource(comp.name, comp.ui, { warnings: compWarnings, theme, cssVars });
     writeFileSync(join(srcDir, `${comp.name}View.swift`), src);
     compFiles.push({ name: `${comp.name}View.swift`, bytes: src.length });
   }
@@ -710,12 +722,28 @@ const TAB_ICONS = ['house.fill', 'book.fill', 'gearshape.fill', 'person.fill', '
  * M4b：非 tab 路由（无 meta.tab）→ details 列表（router.push → NavigationStack push） */
 
 /** M4a 多页目录模式：samples/<name>/ 含 router.ts + pages/*.vue → TabView 工程 */
+/** 加载项目全局 CSS 变量（tokens.css 等 :root 定义）→ 供 parseColor 解析 var(--xxx) */
+function loadCssVars(appDir: string): Map<string, string> {
+  const root = findProjectRoot(appDir); // appDir 可能是 src/router 等子目录 → 回退到项目根
+  const map = new Map<string, string>();
+  const roots = [join(root, 'src/styles/tokens.css'), join(root, 'src/tokens.css'), join(root, 'styles/tokens.css'), join(root, 'src/styles/app.css')];
+  for (const p of roots) {
+    if (!existsSync(p)) continue;
+    const css = readFileSync(p, 'utf-8');
+    for (const m of css.matchAll(/(--[\w-]+)\s*:\s*([^;{}]+);/g)) {
+      map.set(m[1], m[2].trim());
+    }
+  }
+  return map;
+}
+
 function runTabs(appDir: string, opts: { routerFile?: string } = {}): string {
   const routerSrc = readFileSync(opts.routerFile ?? join(appDir, 'router.ts'), 'utf-8');
   const { tabs, details, warnings: routerWarnings } = parseRouterV2(routerSrc, findProjectRoot(appDir), opts.routerFile ?? join(appDir, 'router.ts'));
   for (const w of routerWarnings) console.log(`[gen-ios] 路由提示: ${w}`);
   console.log(`[gen-ios] 多页模式: router.ts → ${tabs.length} 个 tab 页面` + (details.length ? ` + ${details.length} 个 push 页面` : ''));
 
+  const cssVars = loadCssVars(appDir);
   const projectName = FORCED_PROJECT_NAME ?? toIdentifier(basename(appDir));
   const bundleId = FORCED_BUNDLE_ID ?? `com.vrn.${projectName.toLowerCase()}`;
   const outDir = join(OUT_ROOT, projectName);
@@ -777,6 +805,7 @@ function runTabs(appDir: string, opts: { routerFile?: string } = {}): string {
     const swift = generateScreenSource(r.screen, {
       warnings: genWarnings,
       theme: undefined,
+      cssVars,
       // runtime 页键与 JS 资源名统一用标识符化 pageId（tab.id 可能含非法字符；也避免与 detail 撞名）
       runtime: `Runtime.forPage("${pageId}")`,
       bindingMode: 'external',
@@ -844,6 +873,7 @@ function runTabs(appDir: string, opts: { routerFile?: string } = {}): string {
     const swift = generateScreenSource(r.screen, {
       warnings: genWarnings,
       theme: undefined,
+      cssVars,
       // runtime 页键与 tab 页同规则标识符化 + Detail 后缀——
       // tab/detail 同名时（R-VFOBJ-C）JS 资源文件与 forPage 键都独立，不会互相覆盖
       runtime: `Runtime.forPage("${pageId}Detail")`,
@@ -877,7 +907,7 @@ function runTabs(appDir: string, opts: { routerFile?: string } = {}): string {
       if (compSeen.has(comp.name)) continue;
       compSeen.add(comp.name);
       const compWarnings: string[] = [];
-      const src = generateComponentSource(comp.name, comp.ui, { warnings: compWarnings, theme });
+      const src = generateComponentSource(comp.name, comp.ui, { warnings: compWarnings, theme, cssVars });
       writeFileSync(join(srcDir, `${comp.name}View.swift`), src);
       console.log(`[gen-ios]   - ${comp.name}View.swift (${src.length} bytes) · R41 component view`);
     }
@@ -930,11 +960,12 @@ export interface GenerateIosOptions {
  */
 export function generateIos(opts: GenerateIosOptions = {}): string | undefined {
   // R141：直接给路由文件（src/router/index.ts）时，目录里并没有 router.ts
-  if (opts.routerFile) return runTabs(dirname(opts.routerFile), { routerFile: opts.routerFile });
+  // 先注入全局（OUT_ROOT / 工程名 / bundleId），再按入口形态分派
   if (opts.outDirRoot) OUT_ROOT = opts.outDirRoot;
   if (opts.samplesRoot) SAMPLES_ROOT_MUT = opts.samplesRoot;
   if (opts.projectName) FORCED_PROJECT_NAME = opts.projectName;
   if (opts.bundleId) FORCED_BUNDLE_ID = opts.bundleId;
+  if (opts.routerFile) return runTabs(dirname(opts.routerFile), { routerFile: opts.routerFile });
   return runMain(opts.input);
 }
 

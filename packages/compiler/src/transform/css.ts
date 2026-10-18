@@ -39,6 +39,7 @@ const num = (v: string): number | null => {
 /** 与 schema isColor 同源的 CSS 颜色校验：仅 #rgb / #rrggbb / rgb[a]() / hsl[a]()（named/var() 原生端不可解析，拒绝） */
 function isCssColor(v: string): boolean {
   const s = v.trim();
+  if (/^var\([^)]*\)$/.test(s)) return true; // CSS 变量（含 fallback 形态）：值留给 codegen 按项目 tokens 解析
   if (/^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/.test(s)) return true;
   if (/^rgba?\(\s*[\d.]+%?\s*,\s*[\d.]+%?\s*,\s*[\d.]+%?\s*(,\s*([\d.]+%?|0))?\s*\)$/.test(s)) return true;
   if (/^hsla?\(\s*[\d.]+(deg)?\s*,\s*[\d.]+%\s*,\s*[\d.]+%\s*(,\s*([\d.]+|0))?\s*\)$/.test(s)) return true;

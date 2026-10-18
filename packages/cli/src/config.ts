@@ -30,7 +30,7 @@ export interface VrnConfig {
   };
 }
 
-const CONFIG_FILES = ['vrn.config.ts', 'vrn.config.mts', 'vrn.config.js', 'vrn.config.mjs', 'vrn.config.json'];
+const CONFIG_FILES = ['vuexir.config.ts', 'vuexir.config.mts', 'vuexir.config.js', 'vuexir.config.mjs', 'vuexir.config.json', 'vrn.config.ts', 'vrn.config.mts', 'vrn.config.js', 'vrn.config.mjs', 'vrn.config.json'];
 
 /** 读取 vrn.config（json 直接解析；ts/mjs 用动态 import，失败则忽略并提示） */
 export async function loadConfig(projectRoot: string): Promise<Partial<VrnConfig>> {

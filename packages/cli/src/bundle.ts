@@ -140,7 +140,12 @@ export function bundlePageScript(
       },
     });
     const code = out.outputFiles?.[0]?.text ?? '';
-    return code ? { code, names } : null;
+    // 页面导出提升为全局：Swift onTapGesture → Runtime.invoke("goDetail(...)") 裸调用
+    // 需在全局作用域找到函数；__vrnPage 是 esbuild IIFE 的 globalName（模块导出对象）
+    const promoted =
+      code +
+      `\n;(function(){var m=__vrnPage;if(!m)return;for(var k in m){try{if(typeof globalThis[k]==='undefined'){if(m[k]&&m[k].__v_isRef){Object.defineProperty(globalThis,k,{get:function(){return m[k].value;},configurable:true});}else{globalThis[k]=m[k];}}}catch(e){}}})();`;
+    return promoted ? { code: promoted, names } : null;
   } catch (e) {
     if (process.env.VRN_DEBUG_BUNDLE) console.error('[bundle] 页面脚本打包失败:', (e as Error).message.split('\n')[0]);
     return null;

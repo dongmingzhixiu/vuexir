@@ -26,7 +26,18 @@ import type { IrAction, IrNode, IrProps, IrScreen, Size } from '../ir/schema.js'
 
 /* ============ 颜色表达式 ============ */
 
+let currentCssVars: Map<string, string> | undefined;
+
 function parseColor(c: string): { r: number; g: number; b: number; a: number } {
+  const trimmed = c.trim();
+  if (trimmed.startsWith('var(')) {
+    const m = trimmed.match(/^var\(\s*(--[\w-]+)/);
+    if (m && currentCssVars) {
+      const val = currentCssVars.get(m[1]);
+      if (val !== undefined) return parseColor(val);
+    }
+    return { r: 0, g: 0, b: 0, a: 1 };
+  }
   if (c.startsWith('#')) {
     let hex = c.slice(1);
     if (hex.length === 3) hex = hex.split('').map((h) => h + h).join('');
@@ -291,6 +302,7 @@ function toSwiftIdentifier(id: string): string {
 const FW_MAP: Record<string, string> = { normal: '.regular', medium: '.medium', bold: '.bold' };
 const ALIGN_MAP: Record<string, string> = { start: '.leading', center: '.center', end: '.trailing', left: '.leading', right: '.trailing' };
 const FLEX_START_MAP: Record<string, string> = { start: '.leading', center: '.center', end: '.trailing' };
+const V_ALIGN_MAP: Record<string, string> = { start: '.top', center: '.center', end: '.bottom' };
 
 /* ============ 布局上下文 ============ */
 
@@ -539,9 +551,14 @@ function emitNode(node: IrNode, ctx: Ctx): string {
 
 /** JS 条件表达式 → Swift 兼容：===/!== 为 JS 严格比较，Swift 用 ==/!=；字符串字面量单引号 → 双引号 */
 function swiftCondExpr(expr: string, known?: Set<string>): string {
-  // R128：下沉的条件状态 → 判真
+  // R128：下沉的条件状态 → 判真；不在已知集（组件/无状态上下文）→ true 保留内容
   const sunk = expr.match(/^__vrnCond:(\w+)$/);
-  if (sunk) return `vrnTruthy(${sunk[1]})`;
+  if (sunk) {
+    const nm = sunk[1];
+    const kset = known && known.size > 0 ? known : currentStateNames;
+    if (kset && kset.size > 0 && !kset.has(nm)) return 'true';
+    return `vrnTruthy(${nm})`;
+  }
   // R114：条件引用原生端不存在的标识符 → true（保留内容），避免整页编译失败
   const knownSet = known && known.size > 0 ? known : currentStateNames;
   if (knownSet && knownSet.size > 0) {
@@ -751,7 +768,7 @@ function emitNodeInner(node: IrNode, ctx: Ctx): string {
       // CSS align-items 默认 stretch（子项拉伸到容器交叉轴全宽），SwiftUI VStack 无 stretch
       // → 子项显式 .frame(maxWidth:.infinity) 实现（内容仍左对齐）
       const alignRaw = props.alignItems ?? 'stretch';
-      const align = isRow ? (ALIGN_MAP[alignRaw] ?? '.top') : (FLEX_START_MAP[alignRaw] ?? '.leading');
+      const align = isRow ? (V_ALIGN_MAP[alignRaw] ?? '.top') : (FLEX_START_MAP[alignRaw] ?? '.leading');
       const stack = hasAbsolute ? 'ZStack' : isRow ? 'HStack' : 'VStack';
       const stackAlign = hasAbsolute ? '.topLeading' : align;
       // R132：ZStack 里必须把「非绝对定位」的兄弟包成一个流式子容器，
@@ -892,7 +909,7 @@ function emitNodeInner(node: IrNode, ctx: Ctx): string {
       // M3：onSet 内联赋值后推送 stateStore（JS 侧状态同步，供 handler 读取）
       if (props.onSet || props.onClick) {
         // R-VFOBJ：onClick 含循环变量字段（router.push(item.path)）→ Swift 内联展开（JS 无 item 作用域）
-        const loopAction = props.onClick ? loopClickAction(props.onClick, ctx.loop) : null;
+        const loopAction = props.onClick ? loopClickAction(props.onClick, ctx.loop, ctx.runtime) : null;
         const action = props.onSet
           ? `action: { ${props.onSet.var} = ${
               props.onSet.kind === 'expr'
@@ -1159,7 +1176,7 @@ function emitNodeInner(node: IrNode, ctx: Ctx): string {
       // 需 maxWidth:.infinity 以在父容器占满宽（组件 View 默认大小=内容）——父 row/column 的
       // alignItems:stretch 语义由使用点 frame 承担；组件根自身不携带布局。
       if (props.onClick) {
-        const loopAction = loopClickAction(props.onClick, ctx.loop);
+        const loopAction = loopClickAction(props.onClick, ctx.loop, ctx.runtime);
         const action = loopAction
           ? `action: { ${loopAction} }`
           : `action: { ${ctx.runtime}.invoke("${swiftStringEscape(props.onClick)}") }`;
@@ -1196,6 +1213,13 @@ function emitNodeInner(node: IrNode, ctx: Ctx): string {
       );
       let body: string;
       if (vf.listState) {
+        // 组件/无状态上下文：_vrnE# 下沉状态不可求值 → 空 ForEach（编译保底，不渲染该项）
+        const knownS = ctx.stateNames && ctx.stateNames.size > 0 ? ctx.stateNames : currentStateNames;
+        const unresolved = /^_vrnE\d+$/.test(vf.listState) && (!knownS || !knownS.has(vf.listState));
+        if (unresolved) {
+          ctx.warnings.push(`${ctx.path}: v-for 数据源「${vf.listState}」原生端不可求值（组件内无状态上下文），该项已置空`);
+          return 'EmptyView()';
+        }
         // 动态列表：解码失败或空数组时保持空（ForEach 不渲染）；if 语句不能直接挂修饰符 → Group 包裹
         body =
           `Group {\n` +
@@ -1306,6 +1330,7 @@ export function generateScreenSource(
   opts: {
     warnings?: string[];
     theme?: { colorNames: Map<string, string>; fontNames: Map<string, string> };
+    cssVars?: Map<string, string>;
     /** M4a 多页：页面运行时引用（默认 Runtime.shared 单例；多页传 Runtime.forPage("<id>") 隔离 JS 上下文） */
     runtime?: string;
     /** M4b Tabs：状态提升到容器（页面用 @Binding、不生成 onAppear；绑定+onMounted 由容器统一驱动） */
@@ -1319,6 +1344,7 @@ export function generateScreenSource(
   currentColorNames = opts.theme?.colorNames;
   currentFontNames = opts.theme?.fontNames;
   currentFrameShort = opts.theme !== undefined;
+  currentCssVars = opts.cssVars;
   currentStateTypes = Object.fromEntries(
     (screen.state ?? []).map((s) => [
       s.name,
@@ -1445,7 +1471,7 @@ function dictFieldExpr(varName: string, field: string): string {
 }
 
 /** 事件 action 体（onSet 状态赋值优先 / onClick JS 运行时）：button 用 `action: <体>`，其余节点用 `.onTapGesture <体>` */
-function actionExpr(props: IrProps, ctx: { runtime: string }): string | undefined {
+function actionExpr(props: IrProps, ctx: { runtime: string; loop?: { itemKey: string } | undefined }): string | undefined {
   if (props.onSet !== undefined) {
     const v = props.onSet.value;
     const lit =
@@ -1457,6 +1483,9 @@ function actionExpr(props: IrProps, ctx: { runtime: string }): string | undefine
     return `{ ${props.onSet.var} = ${lit}; ${ctx.runtime}.pushState("${props.onSet.var}", ${props.onSet.var}) }`;
   }
   if (props.onClick !== undefined) {
+    // R-LOOPITEM：onTapGesture 路径同样支持循环变量（row 只在 Swift 闭包作用域）
+    const loopAction = loopClickAction(props.onClick, ctx.loop, ctx.runtime);
+    if (loopAction) return `{ ${loopAction} }`;
     return `{ ${ctx.runtime}.invoke("${swiftStringEscape(props.onClick)}") }`;
   }
   return undefined;
@@ -1465,19 +1494,45 @@ function actionExpr(props: IrProps, ctx: { runtime: string }): string | undefine
 /** R-VFOBJ：onClick 表达式含循环变量字段 → 返回 Swift 内联 action 体；否则 null。
  *  支持 router.push(item.path) → Runtime.routerPushHandler?(item["path"] ?? "")；
  *  其他含循环字段表达式不支持（warning 由调用方给出）。 */
-function loopClickAction(onClick: string, loop: { itemKey: string } | undefined): string | null {
+function loopClickAction(onClick: string, loop: { itemKey: string } | undefined, runtime: string): string | null {
   if (!loop) return null;
-  const re = new RegExp(`${loop.itemKey}\\.([A-Za-z_][\\w$]*)`, 'g');
+  const itemKey = loop.itemKey;
+  const re = new RegExp(`${itemKey}\\.([A-Za-z_][\\w$]*)`, 'g');
   if (!re.test(onClick)) return null;
   const m = onClick.match(/^router\.push\((.*)\)$/s);
-  if (!m) return null;
-  const arg = m[1].replace(re, `${loop.itemKey}["$1"] ?? ""`);
-  return `Runtime.routerPushHandler?(${arg})`;
+  if (m) {
+    const arg = m[1].replace(re, `${loop.itemKey}["$1"] ?? ""`);
+    return `Runtime.routerPushHandler?(${arg})`;
+  }
+  // R-LOOPITEM：非 router.push 且引用循环变量（goDetail(row.item.id)）——
+  // row 只在 Swift ForEach 闭包作用域，JS 全局不存在 → 先注入 __vrnLoop 再 invoke
+  const replaced = onClick.replace(re, '__vrnLoop.$1');
+  return `${runtime}.setLoopItem(${itemKey}); ${runtime}.invoke("${swiftStringEscape(replaced)}")`;
 }
 
 /** 收集组件 IR 树中所有 text ref → prop 名（组件 View 的 let 属性集合） */
+/** 表达式 → 根标识符（dialog.title → dialog；!allOpen → allOpen；__vrnField__:dialog:title → dialog；下沉条件 → ''） */
+function rootIdent(expr: string): string {
+  const e = expr.replace(/^!/, '');
+  const f = e.match(/^__vrnField__:(\w+)/);
+  if (f) return f[1];
+  if (e.startsWith('__vrnCond:') || e.startsWith('__vrnField__:')) return '';
+  const id = e.match(/^([A-Za-z_$][\w$]*)/);
+  return id ? id[1] : '';
+}
 function collectRefs(node: IrNode, out: Set<string>): Set<string> {
-  if (node.type === 'text' && node.props?.ref !== undefined) out.add(node.props.ref);
+  if (node.type === 'text' && node.props?.ref !== undefined) {
+    const r = rootIdent(node.props.ref);
+    if (r) out.add(r);
+  }
+  if (node.condition) {
+    const r = rootIdent(node.condition);
+    if (r) out.add(r);
+  }
+  if (node.type === 'for' && node.vfor?.listState && !/^_vrnE\d+$/.test(node.vfor.listState)) {
+    const r = rootIdent(node.vfor.listState);
+    if (r) out.add(r);
+  }
   for (const c of node.children ?? []) collectRefs(c, out);
   return out;
 }
@@ -1491,7 +1546,11 @@ function collectRefs(node: IrNode, out: Set<string>): Set<string> {
 export function generateComponentSource(
   name: string,
   ui: IrNode,
-  opts: { warnings?: string[]; theme?: { colorNames: Map<string, string>; fontNames: Map<string, string> } } = {},
+  opts: {
+    warnings?: string[];
+    theme?: { colorNames: Map<string, string>; fontNames: Map<string, string> };
+    cssVars?: Map<string, string>;
+  } = {},
 ): string {
   const warnings = opts.warnings ?? [];
   // R42：组件 View 与页面共享同一 Theme.swift；R43：frame 短调用同步启用
@@ -1501,7 +1560,9 @@ export function generateComponentSource(
     currentFrameShort = true;
     currentStateTypes = {};
   }
+  currentCssVars = opts.cssVars;
   const props = collectRefs(ui, new Set());
+  currentStateNames = props; // 组件上下文：已知标识符 = props（清掉页面残留 state 名，下沉条件正确降级）
   const dataProps: string[] = [];
   const body = emitNode(ui, {
     parentAxis: 'column',
@@ -1511,6 +1572,7 @@ export function generateComponentSource(
     warnings,
     path: `${name}View.body`,
     dataProps,
+    stateNames: props, // 组件已知标识符 = props 集合（v-if/v-for 下沉状态不在内 → 降级 true）
   });
   const propDecls = [...props]
     .map((p) => `    let ${p}: String`)

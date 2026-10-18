@@ -1879,7 +1879,8 @@ function walkElement(
     if (
       vf.listState &&
       !/^_vrnE\d+$/.test(vf.listState) &&
-      !(state && state.states.some((s) => s.name === vf.listState))
+      !(state && state.states.some((s) => s.name === vf.listState)) &&
+      propRefs === undefined // 页面模式才下沉；组件模式（Set 存在，含空）保留数据源原名
     ) {
       const srcName = vf.listState;
       const sunk2 = addJsExprState(

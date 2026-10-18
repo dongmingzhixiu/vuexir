@@ -102,7 +102,7 @@ export async function generate(args: CliArgs, platform: Platform): Promise<strin
     if (!multiPage) {
       throw new Error('[vrn] Android 生成目前要求多页入口 router.ts（单页 App.vue 请先补 router.ts）');
     }
-    return generateAndroid({ input: inputDir, outDirRoot: outRoot, projectName, bundleId });
+    return generateAndroid({ input: inputDir, outDirRoot: outRoot, projectName, bundleId, ...(routerFile ? { routerFile } : {}) });
   }
   const out = generateIos({
     input: inputDir,

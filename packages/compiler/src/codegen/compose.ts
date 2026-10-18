@@ -1506,9 +1506,15 @@ function parseRouter(
     return cands.find((c) => existsSync(c)) ?? cands[0];
   };
 
-  // 配平扫描所有「含 path:」的对象块
+  // 配平扫描所有「含 path:」的对象块（从 routes: [...] 数组起点开始，避免把 createRouter 顶层对象整块当路由）
   const blocks: string[] = [];
-  for (let i = 0; i < src.length; i += 1) {
+  let scanFrom = 0;
+  const routesMarker = src.indexOf('routes:');
+  if (routesMarker !== -1) {
+    const arrIdx = src.indexOf('[', routesMarker);
+    if (arrIdx !== -1) scanFrom = arrIdx;
+  }
+  for (let i = scanFrom; i < src.length; i += 1) {
     if (src[i] !== '{') continue;
     let depth = 0;
     let quote = '';
@@ -1566,7 +1572,7 @@ function parseRouter(
   }
 
   const hasText = (file: string): boolean => {
-    if (!file || !existsSync(file)) return true;
+    if (!file || !existsSync(file)) return false;
     const tpl = readFileSync(file, 'utf-8').match(/<template>([\s\S]*)<\/template>/)?.[1] ?? '';
     return tpl.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim().length > 0;
   };
@@ -1581,7 +1587,7 @@ function parseRouter(
       path: r.path,
     }));
   const details = routes
-    .filter((r) => r.meta.tab !== 'true')
+    .filter((r) => r.meta.tab !== 'true' && hasText(r.file))
     .map((r) => ({ id: r.name, title: r.meta.title ?? r.name, file: r.file, path: r.path }));
 
   if (tabs.length === 0) {
