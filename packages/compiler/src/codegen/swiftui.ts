@@ -28,14 +28,15 @@ import type { IrAction, IrNode, IrProps, IrScreen, Size } from '../ir/schema.js'
 
 let currentCssVars: Map<string, string> | undefined;
 
-function parseColor(c: string): { r: number; g: number; b: number; a: number } {
+/** 颜色解析结果：theme 模式（var(--x) → ThemeColor.color("x") 换肤引用）或具体 rgb */
+type ParsedColor = { mode?: 'theme'; name?: string; r: number; g: number; b: number; a: number };
+
+function parseColor(c: string): ParsedColor {
   const trimmed = c.trim();
   if (trimmed.startsWith('var(')) {
+    // R-THEME：var(--x) 保留语义 → ThemeColor.color("x")，皮肤切换时原生颜色跟随
     const m = trimmed.match(/^var\(\s*(--[\w-]+)/);
-    if (m && currentCssVars) {
-      const val = currentCssVars.get(m[1]);
-      if (val !== undefined) return parseColor(val);
-    }
+    if (m) return { mode: 'theme', name: m[1].slice(2), r: 0, g: 0, b: 0, a: 1 };
     return { r: 0, g: 0, b: 0, a: 1 };
   }
   if (c.startsWith('#')) {
@@ -50,7 +51,9 @@ function parseColor(c: string): { r: number; g: number; b: number; a: number } {
 }
 
 function colorExpr(c: string): string {
-  const { r, g, b, a } = parseColor(c);
+  const p = parseColor(c);
+  if (p.mode === 'theme' && p.name) return `ThemeColor.color("${p.name}")`;
+  const { r, g, b, a } = p;
   // R42：色板已收集时 → Theme.<name> 引用（抽离重复颜色字面量）
   const name = currentColorNames?.get(rgbHex(r, g, b));
   const base = name !== undefined ? `Theme.${name}` : `Color(red: ${r}/255.0, green: ${g}/255.0, blue: ${b}/255.0)`;
@@ -1393,6 +1396,8 @@ export function generateScreenSource(
     `// source: ${screen.id}.ir.json (${screen.width ?? 360}x${screen.height ?? 640})`,
     '',
     `struct ${structName}: View {`,
+    '    // R-THEME：皮肤切换触发视图重建（UserDefaults "vrn.skin" 变化 → body 重算 → ThemeColor.color 取新皮肤色）',
+    '    @AppStorage("vrn.skin") private var skin = "warm"',
     ...(stateDecls ? [stateDecls, ''] : []),
     ...(needDismiss ? ['    @Environment(' + '\\' + '.dismiss) private var dismiss', ''] : []),
     // R-VFOBJ-D：静态 v-for 数据属性（数据与布局分离，body 只留 ForEach + 组件引用）
@@ -1584,6 +1589,8 @@ export function generateComponentSource(
     `// source: components/${name}.vue`,
     '',
     `struct ${name}View: View {`,
+    '    // R-THEME：皮肤切换触发组件视图重建（@AppStorage("vrn.skin") 变化 → body 重算 → ThemeColor.color 取新皮肤色）',
+    '    @AppStorage("vrn.skin") private var skin = "warm"',
     ...(propDecls ? [propDecls, ''] : []),
     // R-VFOBJ-D：静态 v-for 数据属性（组件内同样分离）
     ...(dataProps.length ? [dataProps.join('\n'), ''] : []),

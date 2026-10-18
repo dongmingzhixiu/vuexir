@@ -231,7 +231,14 @@ const RUNTIME_SWIFT = `final class Runtime {
 
     /// M3 注册 @State 绑定：JS stateStore.<name> 写回 → <setter>（onAppear 时由 View 注册）
     func bindState(_ name: String, _ setter: @escaping (Any) -> Void) {
-        stateBindings[name] = setter
+        // R-THEME：ui_skin 变化 → ThemeColor.currentSkin + UserDefaults 同步 → 各视图 @AppStorage("vrn.skin") 自动重绘换肤
+        stateBindings[name] = { v in
+            setter(v)
+            if name == "ui_skin" || name == "ui.skin", let s = v as? String {
+                ThemeColor.currentSkin = s
+                UserDefaults.standard.set(s, forKey: "vrn.skin")
+            }
+        }
     }
 
     /// M3 Swift → JS 推送：@State 变更（v-model 输出等）→ stateStore 同步（__fromSwift 防回环）
@@ -297,18 +304,18 @@ struct ${projectName}App: App {
     }
 }
 
-/// R68：全局 UINavigationBar 深色外观（背景 #0a0f1e、浅色标题、金色 tint）
+/// R68：全局 UINavigationBar 外观（R-THEME：bg/ink/primary 走 ThemeColor 皮肤表）
 func configureGlobalNavigationBar() {
     let appearance = UINavigationBarAppearance()
     appearance.configureWithOpaqueBackground()
-    appearance.backgroundColor = UIColor(red: 10/255.0, green: 15/255.0, blue: 30/255.0, alpha: 1)
-    let titleColor = UIColor(red: 233/255.0, green: 230/255.0, blue: 221/255.0, alpha: 1)
+    appearance.backgroundColor = UIColor(ThemeColor.color("bg"))
+    let titleColor = UIColor(ThemeColor.color("ink"))
     appearance.titleTextAttributes = [.foregroundColor: titleColor]
     appearance.largeTitleTextAttributes = [.foregroundColor: titleColor]
     UINavigationBar.appearance().standardAppearance = appearance
     UINavigationBar.appearance().scrollEdgeAppearance = appearance
     UINavigationBar.appearance().compactAppearance = appearance
-    UINavigationBar.appearance().tintColor = UIColor(red: 217/255.0, green: 179/255.0, blue: 108/255.0, alpha: 1)
+    UINavigationBar.appearance().tintColor = UIColor(ThemeColor.color("primary"))
 }
 `;
 
@@ -517,6 +524,8 @@ function runOne(input: string): string | undefined {
   const theme = buildTheme(themeTokens);
   const themeSrc = generateThemeSource(theme);
   const cssVars = loadCssVars(input);
+  // R-THEME：皮肤 token 表（var(--x) 按皮肤分组 → ThemeColors.swift，换肤原生跟随）
+  writeFileSync(join(srcDir, 'ThemeColors.swift'), buildThemeColorsSwift(loadSkinVars(input)));
   const swift = generateScreenSource(screen, { warnings: genWarnings, theme, cssVars });
   if (genWarnings.length > 0) {
     console.log(`[gen-ios] 布局降级提示（${genWarnings.length} 条，R-H3/H4/H5）:`);
@@ -526,7 +535,7 @@ function runOne(input: string): string | undefined {
   writeFileSync(join(srcDir, 'App.swift'), APP_SWIFT(projectName, viewName, screen.title));
   writeFileSync(join(srcDir, 'recite.json'), JSON.stringify(screen, null, 2));
   // 事件运行时（<script setup> 逻辑源码；无逻辑时生成空文件保持 Bundle 引用成立）
-  writeFileSync(join(srcDir, 'runtime.js'), runtimeSrc ?? '');
+  writeFileSync(join(srcDir, 'runtime.js'), injectSkinBridge(runtimeSrc ?? ''));
   // R41 组件：每个 components/Xxx.vue → 独立 XxxView.swift（struct XxxView；页面引用 XxxView(attrs)）
   const compFiles: { name: string; bytes: number }[] = [];
   for (const comp of components) {
@@ -632,11 +641,11 @@ ${tabs
   .join('\n')}
             }
             .frame(height: 56)
-            .background(Color(red: 16/255.0, green: 24/255.0, blue: 40/255.0))
+            .background(ThemeColor.color("surface-2"))
             .overlay(Divider(), alignment: .top)
             }
-            // R68：容器背景兜底——页面内容不足或底部安全区不露白
-            .background(${swiftColorExpr(rootBg)})
+            // R68：容器背景兜底——页面内容不足或底部安全区不露白（R-THEME：默认深色 → ThemeColor 皮肤 bg）
+            .background(${rootBg === '#0a0f1e' || rootBg === '#0a0F1E' || !rootBg ? 'ThemeColor.color("bg")' : swiftColorExpr(rootBg)})
 ${details.length > 0
   ? `            .navigationDestination(item: $pushedRoute) { route in
                 Group {
@@ -689,18 +698,18 @@ struct ${projectName}App: App {
     }
 }
 
-/// R68：全局 UINavigationBar 深色外观（背景 #0a0f1e、浅色标题、金色 tint）
+/// R68：全局 UINavigationBar 外观（R-THEME：bg/ink/primary 走 ThemeColor 皮肤表）
 func configureGlobalNavigationBar() {
     let appearance = UINavigationBarAppearance()
     appearance.configureWithOpaqueBackground()
-    appearance.backgroundColor = UIColor(red: 10/255.0, green: 15/255.0, blue: 30/255.0, alpha: 1)
-    let titleColor = UIColor(red: 233/255.0, green: 230/255.0, blue: 221/255.0, alpha: 1)
+    appearance.backgroundColor = UIColor(ThemeColor.color("bg"))
+    let titleColor = UIColor(ThemeColor.color("ink"))
     appearance.titleTextAttributes = [.foregroundColor: titleColor]
     appearance.largeTitleTextAttributes = [.foregroundColor: titleColor]
     UINavigationBar.appearance().standardAppearance = appearance
     UINavigationBar.appearance().scrollEdgeAppearance = appearance
     UINavigationBar.appearance().compactAppearance = appearance
-    UINavigationBar.appearance().tintColor = UIColor(red: 217/255.0, green: 179/255.0, blue: 108/255.0, alpha: 1)
+    UINavigationBar.appearance().tintColor = UIColor(ThemeColor.color("primary"))
 }
 `;
 
@@ -737,6 +746,109 @@ function loadCssVars(appDir: string): Map<string, string> {
   return map;
 }
 
+/**
+ * R-THEME：JS 侧换肤桥——页面 bundle 的 ui.setSkin(skin) 调用后，
+ * 把皮肤广播进 stateStore.ui_skin → Proxy set → __setState → Swift bindState → ThemeColor.currentSkin → 原生换肤
+ * 注入位置：esbuild 产物中 ui store 的 setSkin 方法体开头（stateStore 在 RUNTIME 模板段，函数被调用时已就绪）
+ */
+function injectSkinBridge(js: string): string {
+  if (!js || js.indexOf('setSkin') === -1) return js;
+  return js.replace(/setSkin\s*\(\s*skin\s*\)\s*\{/g, 'setSkin(skin) { if(typeof stateStore!=="undefined"&&stateStore){try{stateStore["ui_skin"]=skin;}catch(e){}}');
+}
+
+/**
+ * R-THEME：按皮肤分组解析 tokens.css 的 var(--x)
+ * 选择器 → 皮肤名：:root/.skin-warm → warm；.skin-mint → mint；.skin-lavender → lavender；.skin-night → night
+ * 返回 Map<skin, Map<varName, value>>；:root 覆盖块（半径/字体等）并入 warm
+ */
+function loadSkinVars(appDir: string): Map<string, Map<string, string>> {
+  const root = findProjectRoot(appDir);
+  const skins = new Map<string, Map<string, string>>();
+  const roots = [join(root, 'src/styles/tokens.css'), join(root, 'src/tokens.css'), join(root, 'styles/tokens.css')];
+  for (const p of roots) {
+    if (!existsSync(p)) continue;
+    const css = readFileSync(p, 'utf-8');
+    // 按 } 切块，取块头选择器判断皮肤归属
+    for (const block of css.split('}')) {
+      const selLine = block.split('{')[0] ?? '';
+      let skin = '';
+      if (/\.skin-warm/.test(selLine) || /:root/.test(selLine)) skin = 'warm';
+      else if (/\.skin-mint/.test(selLine)) skin = 'mint';
+      else if (/\.skin-lavender/.test(selLine)) skin = 'lavender';
+      else if (/\.skin-night/.test(selLine)) skin = 'night';
+      if (!skin) continue;
+      const body = block.slice(block.indexOf('{') + 1);
+      let map = skins.get(skin);
+      if (!map) { map = new Map(); skins.set(skin, map); }
+      for (const m of body.matchAll(/(--[\w-]+)\s*:\s*([^;{}]+);/g)) {
+        map.set(m[1], m[2].trim());
+      }
+    }
+  }
+  return skins;
+}
+
+/** var 值 → Swift Color 字面量（hex/rgb/rgba；非颜色返回 null） */
+function cssValueToSwiftColor(v: string): string | null {
+  const t = v.trim();
+  if (t.startsWith('#')) {
+    let hex = t.slice(1);
+    if (hex.length === 3) hex = hex.split('').map((h) => h + h).join('');
+    const n = parseInt(hex, 16);
+    return `Color(red: ${(n >> 16) & 255}/255.0, green: ${(n >> 8) & 255}/255.0, blue: ${n & 255}/255.0)`;
+  }
+  const m = t.match(/rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)(?:\s*,\s*([\d.]+))?\s*\)/);
+  if (m) {
+    const a = m[4] !== undefined ? +m[4] : 1;
+    return `Color(red: ${+m[1]}/255.0, green: ${+m[2]}/255.0, blue: ${+m[3]}/255.0, opacity: ${a})`;
+  }
+  if (/^rgba?\(\s*[\d.]+\s*[,\s]/.test(t)) return null;
+  if (t.startsWith('var(') || /^[a-z]+$/i.test(t)) return null;
+  return null;
+}
+
+/** 生成 ThemeColors.swift：4 皮肤 token 表 + currentSkin + color(name) 解析 */
+function buildThemeColorsSwift(skins: Map<string, Map<string, string>>): string {
+  const order = ['warm', 'mint', 'lavender', 'night'];
+  const lines: string[] = [];
+  lines.push('import SwiftUI');
+  lines.push('');
+  lines.push('/// Vuexir 皮肤 token 表：由 tokens.css 的 var(--x) 按皮肤分组生成');
+  lines.push('/// 换肤：JS ui.setSkin → stateStore.ui_skin → __setState → ThemeColor.currentSkin → 视图重建自动取新色');
+  lines.push('enum ThemeColor {');
+  lines.push('    static var currentSkin = UserDefaults.standard.string(forKey: "vrn.skin") ?? "warm"');
+  lines.push('    static func color(_ name: String) -> Color {');
+  lines.push('        let skin = UserDefaults.standard.string(forKey: "vrn.skin") ?? currentSkin');
+  lines.push('        switch skin {');
+  const names = new Set<string>();
+  for (const skin of order) names.add(skin);
+  for (const skin of order) {
+    const map = skins.get(skin);
+    if (!map) continue;
+    const ref = skin === 'warm' ? 'warmMap' : `${skin}Map`;
+    const fallback = skin === 'warm' ? 'Color.black' : 'warmMap[name] ?? Color.black';
+    lines.push(`        case "${skin}": return ${ref}[name] ?? ${fallback}`);
+  }
+  lines.push('        default: return warmMap[name] ?? Color.black');
+  lines.push('        }');
+  lines.push('    }');
+  for (const skin of order) {
+    const map = skins.get(skin);
+    if (!map) continue;
+    const entries: string[] = [];
+    for (const [k, v] of map) {
+      const c = cssValueToSwiftColor(v);
+      if (c) entries.push(`        "${k.slice(2)}": ${c}`);
+    }
+    if (entries.length === 0) continue;
+    lines.push(`    private static let ${skin === 'warm' ? 'warmMap' : `${skin}Map`}: [String: Color] = [`);
+    lines.push(entries.join(',\n'));
+    lines.push('    ]');
+  }
+  lines.push('}');
+  return lines.join('\n') + '\n';
+}
+
 function runTabs(appDir: string, opts: { routerFile?: string } = {}): string {
   const routerSrc = readFileSync(opts.routerFile ?? join(appDir, 'router.ts'), 'utf-8');
   const { tabs, details, warnings: routerWarnings } = parseRouterV2(routerSrc, findProjectRoot(appDir), opts.routerFile ?? join(appDir, 'router.ts'));
@@ -744,6 +856,9 @@ function runTabs(appDir: string, opts: { routerFile?: string } = {}): string {
   console.log(`[gen-ios] 多页模式: router.ts → ${tabs.length} 个 tab 页面` + (details.length ? ` + ${details.length} 个 push 页面` : ''));
 
   const cssVars = loadCssVars(appDir);
+  // R-THEME：皮肤 token 表（var(--x) 按皮肤分组 → ThemeColors.swift，换肤原生跟随）
+  const skinVars = loadSkinVars(appDir);
+  const themeColorsSwift = buildThemeColorsSwift(skinVars);
   const projectName = FORCED_PROJECT_NAME ?? toIdentifier(basename(appDir));
   const bundleId = FORCED_BUNDLE_ID ?? `com.vrn.${projectName.toLowerCase()}`;
   const outDir = join(OUT_ROOT, projectName);
@@ -751,6 +866,7 @@ function runTabs(appDir: string, opts: { routerFile?: string } = {}): string {
   // 写前清空源目录：删除页面后残留的旧 View/runtime 仍会进 Xcode 工程（幽灵页面）
   rmSync(srcDir, { recursive: true, force: true });
   mkdirSync(srcDir, { recursive: true });
+  writeFileSync(join(srcDir, 'ThemeColors.swift'), themeColorsSwift);
 
   // R97 P2：把可独立运行的 utils 打成 IIFE，前置到每个页面 runtime 之前，
   // 让 computed 里引用的外部函数（countChars / normalize …）在原生 JS 运行时可用
@@ -821,7 +937,7 @@ function runTabs(appDir: string, opts: { routerFile?: string } = {}): string {
     if (pageBundle) console.log(`[gen-ios] 页面脚本打包：${tab.id}（${pageBundle.names.length} 个绑定）`);
     writeFileSync(
       join(srcDir, `runtime_${pageId}.js`),
-      utilsBundle.code + '\n' + (pageBundle?.code ?? '') + '\n' + (r.runtime ?? ''),
+      injectSkinBridge(utilsBundle.code + '\n' + (pageBundle?.code ?? '') + '\n' + (r.runtime ?? '')),
     );
     pageFiles.push(`${pageId}View.swift`);
     pageRuntimes.push({ id: pageId, src: r.runtime ?? '' });
@@ -880,7 +996,7 @@ function runTabs(appDir: string, opts: { routerFile?: string } = {}): string {
     });
     for (const w of genWarnings) console.log(`[gen-ios] 生成提示（${d.id}，push 页）: ${w}`);
     writeFileSync(join(srcDir, viewFile), swift.replace(/Text\("(_vrn[EAC][0-9]+)"\)/g, 'Text($1)'));
-    writeFileSync(join(srcDir, `runtime_${pageId}Detail.js`), utilsBundle.code + '\n' + (r.runtime ?? ''));
+    writeFileSync(join(srcDir, `runtime_${pageId}Detail.js`), injectSkinBridge(utilsBundle.code + '\n' + (r.runtime ?? '')));
     pageFiles.push(viewFile);
     pageRuntimes.push({ id: `${pageId}Detail`, src: r.runtime ?? '' });
     detailPages.push({ id: d.id, title: d.title, view: viewName, path: d.path });
