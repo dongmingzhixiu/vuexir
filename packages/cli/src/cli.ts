@@ -73,7 +73,22 @@ export async function generate(args: CliArgs, platform: Platform): Promise<strin
   const resolved = explicit ? { entry: explicit.entry, multiPage: explicit.multiPage } : resolveEntry(cfg);
   const { entry, multiPage } = resolved;
   /** 传给生成器的入口（约定：路由文件路径 / 含 router.ts 的目录 / 含 App.vue 的目录） */
-  const inputDir = explicit ? explicit.dir : multiPage ? entry : dirname(entry);
+  // R142：多页入口统一解析成「具体的路由文件」，避免目录里没有 router.ts 时退回样例模式
+  let routerFile: string | undefined;
+  if (multiPage) {
+    if (/\.(ts|js|mts|mjs)$/.test(entry) && existsSync(entry)) {
+      routerFile = entry;
+    } else {
+      for (const cand of ['router.ts', 'index.ts', 'router/index.ts', 'router.js']) {
+        const full = join(entry, cand);
+        if (existsSync(full)) {
+          routerFile = full;
+          break;
+        }
+      }
+    }
+  }
+  const inputDir = routerFile ? dirname(routerFile) : explicit ? explicit.dir : multiPage ? entry : dirname(entry);
   const projectName = cfg.projectName ?? deriveProjectName(cfg, entry);
   const bundleId = cfg.bundleId ?? `com.vrn.${projectName.toLowerCase()}`;
   const outRoot = platformOutDir(cfg, platform, '').replace(/\/$/, '');
@@ -94,7 +109,7 @@ export async function generate(args: CliArgs, platform: Platform): Promise<strin
     outDirRoot: outRoot,
     projectName,
     bundleId,
-    ...(explicit && explicit.multiPage ? { routerFile: explicit.entry } : {}),
+    ...(routerFile ? { routerFile } : {}),
   });
   if (!out) throw new Error('[vrn] iOS 生成未返回产物目录');
   return out;

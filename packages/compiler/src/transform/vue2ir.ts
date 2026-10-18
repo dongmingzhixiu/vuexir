@@ -1850,10 +1850,16 @@ function walkElement(
         const expr = gm[3].trim();
         // Vue3 语义：`v-for="i in 3"` 迭代 1..3
         const rangeM = expr.match(/^(\d+)$/);
+        // R143：数据源可能是数组、数值（v-for="i in total" 迭代 1..N）或 props 字符串，
+        // 用运行时自适应表达式兜住全部形态
         const sunk = addJsExprState(
           rangeM
             ? `JSON.stringify(Array.from({ length: ${rangeM[1]} }, function (_, i) { return i + 1; }))`
-            : `JSON.stringify(${expr})`,
+            : `JSON.stringify((function (v) {` +
+                ` if (Array.isArray(v)) return v;` +
+                ` var n = Number(v);` +
+                ` if (!isNaN(n) && n > 0) return Array.from({ length: n }, function (_, i) { return i + 1; });` +
+                ` return []; })(${expr}))`,
         );
         vf = {
           listState: sunk,
@@ -1869,14 +1875,19 @@ function walkElement(
     }
     // M4b：动态列表数据源必须已声明为 ref 数组状态（编译期校验，防悬空引用）
     // 表达式下沉产生的状态（_vrnE*）在 walk 之后才并入页面状态，这里放行
+    // R143：未声明的数据源（组件 props / 数值 / 未注册变量）→ 运行时自适应下沉，不再整页失败
     if (
       vf.listState &&
       !/^_vrnE\d+$/.test(vf.listState) &&
       !(state && state.states.some((s) => s.name === vf.listState))
     ) {
-      throw new VueCompileError(
-        `v-for 动态数据源「${vf.listState}」未在 <script setup> 中声明为 ref 数组（M4b）`,
+      const srcName = vf.listState;
+      const sunk2 = addJsExprState(
+        `JSON.stringify((function (v) { if (Array.isArray(v)) return v; var n = Number(v); ` +
+          `if (!isNaN(n) && n > 0) return Array.from({ length: n }, function (_, i) { return i + 1; }); return []; })(${srcName}))`,
       );
+      warnings.push(`v-for 数据源「${srcName}」未声明为状态 → 已在运行时自适应求值（R143）`);
+      vf.listState = sunk2;
     }
     const innerNode: ElementNode = { ...node, props: node.props.filter((p) => !(p.type === NodeTypes.DIRECTIVE && p.name === 'for')) };
     activeLoops.push({ itemKey: vf.itemKey, indexKey: vf.indexKey });

@@ -80,7 +80,8 @@ export function resolveEntry(cfg: VrnConfig): { entry: string; multiPage: boolea
       if (existsSync(a)) return { entry: a, multiPage: false };
       throw new Error(`entry 目录内没有 router.ts / App.vue：${p}`);
     }
-    if (existsSync(p)) return { entry: p, multiPage: p.endsWith('router.ts') || p.endsWith('router.js') };
+    // R142：任何 .ts/.js 入口都按「路由表」处理（src/router/index.ts 这类命名很常见）
+    if (existsSync(p)) return { entry: p, multiPage: /\.(ts|js|mts|mjs)$/.test(p) };
     throw new Error(`vrn.config.entry 指向的文件不存在：${p}`);
   }
   const routerCandidates = [
