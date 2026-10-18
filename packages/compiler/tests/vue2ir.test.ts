@@ -429,9 +429,11 @@ const accent = ref('#d9b36c')
     expect(r.warnings.some((w) => w.includes('假分支'))).toBe(true);
   });
 
-  it('v-for 数据源未声明 → 编译报错；重复 :key 忽略', () => {
-    expect(() => vueToIr(`<template><div v-for="x in arr" class="l"><span>{{ x }}</span></div></template>
-<style>.l { display: flex; }</style>`)).toThrow(/未在 <script setup> 中声明为 ref 数组/);
+  it('v-for 数据源未声明 → 运行时自适应（R143）；重复 :key 忽略', () => {
+    const r = vueToIr(`<template><div v-for="x in arr" class="l"><span>{{ x }}</span></div></template>
+<style>.l { display: flex; }</style>`);
+    // R143：不再报错，改为运行时自适应求值（数组/数值都支持）
+    expect(r.warnings.some((w) => w.includes('运行时自适应'))).toBe(true);
   });
 });
 
